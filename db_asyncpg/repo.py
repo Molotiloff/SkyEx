@@ -17,18 +17,35 @@ class Repo:
     # ---------- Клиенты ----------
     async def ensure_client(self, chat_id: int, name: str, city: str | None = None) -> int:
         """
-        Вернёт client_id, создаст при отсутствии. При изменении name/city — обновляет.
+        Вернёт client_id.
+        - Создаст клиента, если его нет.
+        - Если клиент есть, но is_active=FALSE — переведёт в TRUE (реактивация).
+        - При изменении name/city — обновит поля.
         """
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
                 row = await con.fetchrow(
-                    "SELECT id, name, city FROM clients WHERE chat_id=$1",
+                    "SELECT id, name, city, is_active FROM clients WHERE chat_id=$1",
                     chat_id,
                 )
                 if row:
-                    # при изменении — обновим «для справки»
-                    if (name and row["name"] != name) or (city is not None and row["city"] != city):
+                    # нужно ли обновить name/city?
+                    need_update_nc = (name and row["name"] != name) or (city is not None and row["city"] != city)
+                    if not row["is_active"]:
+                        # реактивация + опциональное обновление name/city
+                        await con.execute(
+                            """
+                            UPDATE clients
+                            SET is_active = TRUE,
+                                deactivated_at = NULL,
+                                name = COALESCE($2, name),
+                                city = COALESCE($3, city)
+                            WHERE id = $1
+                            """,
+                            row["id"], name, city,
+                        )
+                    elif need_update_nc:
                         await con.execute(
                             "UPDATE clients SET name=COALESCE($2,name), city=COALESCE($3,city) WHERE id=$1",
                             row["id"], name, city,
@@ -44,6 +61,52 @@ class Repo:
                     chat_id, name, city,
                 )
                 return rec["id"]
+
+    async def remove_client(self, chat_id: int) -> bool:
+        """
+        МЯГКОЕ удаление клиента: помечаем is_active = FALSE (без каскадного удаления).
+        Повторное обращение клиента «реанимирует» его через ensure_client().
+        Возвращает True, если состояние было изменено (клиент активный -> деактивирован).
+        """
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                res = await con.execute(
+                    """
+                    UPDATE clients
+                    SET is_active = FALSE,
+                        deactivated_at = NOW()
+                    WHERE chat_id = $1
+                      AND is_active = TRUE
+                    """,
+                    chat_id,
+                )
+                return res.endswith(" 1")
+
+    async def list_clients(self) -> list[dict]:
+        """
+        Список АКТИВНЫХ клиентов (чатов) с количеством счетов.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            rows = await con.fetch(
+                """
+                SELECT
+                    c.id,
+                    c.chat_id,
+                    c.name,
+                    c.city,
+                    c.created_at,
+                    COUNT(a.*)               AS accounts_total,
+                    COUNT(a.*) FILTER (WHERE a.is_active) AS accounts_active
+                FROM clients c
+                LEFT JOIN client_accounts a ON a.client_id = c.id
+                WHERE c.is_active = TRUE
+                GROUP BY c.id
+                ORDER BY c.created_at DESC, c.id DESC
+                """
+            )
+            return [dict(r) for r in rows]
 
     async def add_currency(self, client_id: int, currency_code: str, precision: int) -> int:
         """
@@ -251,30 +314,6 @@ class Repo:
                 JOIN clients c ON c.id = a.client_id
                 WHERE a.is_active = TRUE
                 ORDER BY a.client_id, a.currency_code
-                """
-            )
-            return [dict(r) for r in rows]
-
-    async def list_clients(self) -> list[dict]:
-        """
-        Список всех клиентов (чатов) с количеством счетов.
-        """
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            rows = await con.fetch(
-                """
-                SELECT
-                    c.id,
-                    c.chat_id,
-                    c.name,
-                    c.city,
-                    c.created_at,
-                    COUNT(a.*)               AS accounts_total,
-                    COUNT(a.*) FILTER (WHERE a.is_active) AS accounts_active
-                FROM clients c
-                LEFT JOIN client_accounts a ON a.client_id = c.id
-                GROUP BY c.id
-                ORDER BY c.created_at DESC, c.id DESC
                 """
             )
             return [dict(r) for r in rows]
