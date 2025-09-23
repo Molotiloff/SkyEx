@@ -15,6 +15,17 @@ from utils.formatting import format_amount_core
 MINUS_CHARS = "-−–—"
 PLUS_CHARS = "+＋"
 
+# алиасы валют
+ALIASES = {
+    "РУБ": "RUB",
+    "RUB": "RUB",
+}
+
+
+def _normalize_code(code: str) -> str:
+    code_up = code.strip().upper()
+    return ALIASES.get(code_up, code_up)
+
 
 def _normalize_sign(ch: str) -> str:
     ch = ch.strip()
@@ -56,18 +67,16 @@ class ClientsBalancesHandler:
             return
 
         text = (message.text or "")
-        # Разрешим любые пробелы и «длинные» плюсы/минусы
         m = re.match(
             rf"(?iu)^/бк(?:@\w+)?\s+(\S+)\s+([{re.escape(MINUS_CHARS + PLUS_CHARS)}])\s*$",
             text
         )
 
-        rows = await self.repo.balances_by_client()  # client_id, client_name, chat_id, currency_code, balance,
-        # precision
+        rows = await self.repo.balances_by_client()
 
-        # ВАРИАНТ 1: фильтр по валюте и знаку
+        # --- вариант 1: фильтр по валюте и знаку ---
         if m:
-            code_filter = m.group(1).upper()
+            code_filter = _normalize_code(m.group(1))
             sign_filter = _normalize_sign(m.group(2))
 
             filtered = []
@@ -100,7 +109,6 @@ class ClientsBalancesHandler:
                 bal = Decimal(str(r["balance"]))
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
-                # ВАЖНО: имя/текст экранируем, chat_id отдельно в <code>
                 out_lines.append(f"{name} (chat_id=<code>{chat_id}</code>)")
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
                 out_lines.append("")
@@ -110,14 +118,14 @@ class ClientsBalancesHandler:
                 await message.answer(chunk, parse_mode="HTML")
             return
 
-        # ВАРИАНТ 2: без аргументов — все ненулевые балансы
+        # --- вариант 2: все ненулевые балансы ---
         by_client: dict[int, dict] = defaultdict(lambda: {"name": "", "chat_id": None, "items": []})
         for r in rows:
             cid = int(r["client_id"])
             bal = Decimal(str(r["balance"]))
             if bal == 0:
                 continue
-            code = str(r["currency_code"]).upper()
+            code = _normalize_code(str(r["currency_code"]))
             prec = int(r.get("precision", 2))
             by_client[cid]["name"] = r.get("client_name") or ""
             by_client[cid]["chat_id"] = r.get("chat_id")
@@ -143,7 +151,6 @@ class ClientsBalancesHandler:
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_balances, Command("бк"))
-        # И гибкий regexp для вариантов с пробелами/знаками
         self.router.message.register(
             self._cmd_balances,
             F.text.regexp(r"(?iu)^/бк(?:@\w+)?(?:\s+\S+(?:\s+[+\-−–—])\s*)?$"),

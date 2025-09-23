@@ -4,11 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="start">
+    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="/rmclient add">
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/db_asyncpg/repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/db_asyncpg/repo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/handlers/clients.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/clients.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -106,12 +104,21 @@
       <option name="project" value="LOCAL" />
       <updated>1758630127487</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="/rmclient add">
+      <option name="closed" value="true" />
+      <created>1758649389247</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1758649389247</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="start" />
-    <option name="LAST_COMMIT_MESSAGE" value="start" />
+    <MESSAGE value="/rmclient add" />
+    <option name="LAST_COMMIT_MESSAGE" value="/rmclient add" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
