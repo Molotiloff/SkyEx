@@ -43,8 +43,7 @@ class BotApp:
 
         self.managers_handler = ManagersHandler(
             self.repo,
-            admin_chat_ids=admin_chat_list,
-            admin_user_ids=self.config.admin_ids,
+            self.config.admin_chat_id,
         )
         self.dp.include_router(self.managers_handler.router)
 

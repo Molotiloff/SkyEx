@@ -4,9 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="/rmclient add">
+    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="/бк fix">
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot_app.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot_app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handlers/managers.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/managers.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -112,7 +114,15 @@
       <option name="project" value="LOCAL" />
       <updated>1758649389247</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="/rmclient add">
+      <option name="closed" value="true" />
+      <created>1758651428523</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1758651428523</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
