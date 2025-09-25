@@ -109,7 +109,7 @@ class AdminRequestHandler(AbstractExchangeHandler):
             recv_amount_expr=recv_amount_expr,
             pay_code=pay_code,
             pay_amount_expr=pay_amount_expr,
-            recv_is_deposit=False,
-            pay_is_withdraw=False,
+            recv_is_deposit=True,
+            pay_is_withdraw=True,
             note=note,
         )
