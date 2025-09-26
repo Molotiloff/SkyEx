@@ -17,17 +17,12 @@ from utils.requests import post_request_message
 
 class AbstractExchangeHandler(ABC):
     """
-    Базовая реализация обмена (под Postgres Repo):
-    - считает выражения в Decimal
-    - квантует суммы по точности счётов из БД
-    - проводит операции (deposit/withdraw) с идемпотентностью и компенсацией
-    - печатает заявку в исходный чат и дублирует её в REQUEST_CHAT (если задан)
-    - затем отправляет список ненулевых счетов отдельным сообщением (только в исходный чат)
+    Базовая реализация обмена (под Postgres Repo).
     """
 
     def __init__(self, repo: Repo, request_chat_id: int | None = None) -> None:
         self.repo = repo
-        self.request_chat_id = request_chat_id  # ← NEW
+        self.request_chat_id = request_chat_id
 
     async def process(
         self,
@@ -44,7 +39,7 @@ class AbstractExchangeHandler(ABC):
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
 
-        # 1) выражения → Decimal (сырые, до квантования)
+        # 1) выражения → Decimal
         try:
             recv_amount_raw = evaluate(recv_amount_expr)
             pay_amount_raw = evaluate(pay_amount_expr)
@@ -79,7 +74,7 @@ class AbstractExchangeHandler(ABC):
             recv_prec = int(acc_recv["precision"])
             pay_prec = int(acc_pay["precision"])
 
-            # 3) квантование под точность счётов (для проведения)
+            # 3) квантование
             q_recv = Decimal(10) ** -recv_prec
             q_pay = Decimal(10) ** -pay_prec
             recv_amount = recv_amount_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
@@ -88,66 +83,73 @@ class AbstractExchangeHandler(ABC):
                 await message.answer("Сумма слишком мала для точности выбранных валют.")
                 return
 
-            # 4) курс «привычный людям»
+            # 4) курс
             try:
                 if recv_code == "RUB" or pay_code == "RUB":
                     rub_raw = recv_amount_raw if recv_code == "RUB" else pay_amount_raw
                     other_raw = pay_amount_raw if recv_code == "RUB" else recv_amount_raw
                     if other_raw == 0:
-                        await message.answer("Курс не определён (деление на ноль). Проверьте выражения.")
+                        await message.answer("Курс не определён (деление на ноль).")
                         return
                     auto_rate = rub_raw / other_raw
                 else:
                     if recv_amount_raw == 0:
-                        await message.answer("Курс не определён (деление на ноль). Проверьте выражения.")
+                        await message.answer("Курс не определён (деление на ноль).")
                         return
                     auto_rate = pay_amount_raw / recv_amount_raw
 
                 if not auto_rate.is_finite() or auto_rate <= 0:
-                    await message.answer("Курс невалидный (неположительное значение). Проверьте выражения.")
+                    await message.answer("Курс невалидный.")
                     return
 
                 q_rate = Decimal("1e-8")
                 rate_q = auto_rate.quantize(q_rate, rounding=ROUND_HALF_UP)
                 rate_str = _fmt_rate(rate_q)
             except (InvalidOperation, ZeroDivisionError):
-                await message.answer("Ошибка расчёта курса. Проверьте выражения.")
+                await message.answer("Ошибка расчёта курса.")
                 return
 
-            # 5) текст заявки
+            # 5) тексты заявок
             req_id = random.randint(10_000_000, 99_999_999)
             pretty_recv = format_amount_core(recv_amount, recv_prec)
             pretty_pay = format_amount_core(pay_amount, pay_prec)
-            parts = [
+
+            base_lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
                 f"Курс: <code>{rate_str}</code>",
                 f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
-
             if note:
-                parts.append("----")
-                parts.append(f"Комментарий: <code>{html.escape(note)}</code>")
+                base_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
 
-            # формула всегда последняя
-            formula_text = f"{pay_amount_expr}"
-            parts.append("----")
-            parts.append(f"Формула: <code>{html.escape(formula_text)}</code>")
+            # Клиенту — без строки «Клиент» и без формулы
+            client_text = "\n".join(base_lines)
 
-            request_text = "\n".join(parts)
+            # В заявочный чат — добавляем строку «Клиент» сразу после номера заявки + формулу
+            request_lines = [
+                f"Заявка: <code>{req_id}</code>",
+                f"Клиент: <b>{html.escape(chat_name)}</b>",
+                "-----",
+                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
+                f"Курс: <code>{rate_str}</code>",
+                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+            ]
+            if note:
+                request_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
+            request_lines += ["----", f"Формула: <code>{html.escape(pay_amount_expr)}</code>"]
 
-            # 6) проведение операций (с компенсацией при ошибке)
-            # идемпотентные ключи по сообщению (две ноги обмена различаем суффиксами)
+            request_text = "\n".join(request_lines)
+
+            # 6) проведение операций
             idem_recv = f"{chat_id}:{message.message_id}:recv"
             idem_pay = f"{chat_id}:{message.message_id}:pay"
 
-            # комментарии в транзакциях: исходное expr [+ комментарий]
             recv_comment = recv_amount_expr if not note else f"{recv_amount_expr} | {note}"
             pay_comment = pay_amount_expr if not note else f"{pay_amount_expr} | {note}"
 
             try:
-                # leg A
                 if recv_is_deposit:
                     await self.repo.deposit(
                         client_id=client_id,
@@ -167,7 +169,6 @@ class AbstractExchangeHandler(ABC):
                         idempotency_key=idem_recv,
                     )
 
-                # leg B
                 if pay_is_withdraw:
                     await self.repo.withdraw(
                         client_id=client_id,
@@ -188,7 +189,6 @@ class AbstractExchangeHandler(ABC):
                     )
 
             except Exception as leg_err:
-                # компенсация leg A (best-effort)
                 try:
                     if recv_is_deposit:
                         await self.repo.withdraw(
@@ -212,22 +212,22 @@ class AbstractExchangeHandler(ABC):
                     await message.answer(f"Не удалось выполнить обмен: {leg_err}")
                     return
 
-            # 7) отправляем заявку в исходный чат
-            await message.answer(request_text, parse_mode="HTML")
+            # 7) клиенту
+            await message.answer(client_text, parse_mode="HTML")
 
-            # 7.1) дублируем заявку в заявочный чат (без сообщений о балансах)
+            # 7.1) заявочный чат
             if self.request_chat_id:
                 try:
                     await post_request_message(
                         bot=message.bot,
                         request_chat_id=self.request_chat_id,
                         text=request_text,
+                        reply_markup=None,
                     )
                 except Exception:
-                    # не валим основной флоу, молча проглатываем (или можно залогировать)
                     pass
 
-            # 8) следом — ненулевые счета из БД (только в исходный чат)
+            # 8) счета
             accounts2 = await self.repo.snapshot_wallet(client_id)
             compact = format_wallet_compact(accounts2, only_nonzero=True)
 

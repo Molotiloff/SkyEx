@@ -8,16 +8,14 @@ from typing import Optional, Iterable, Tuple, Set
 from aiogram import Bot, Router, F
 from aiogram.types import InlineKeyboardMarkup, CallbackQuery
 
-from keyboards.request import request_keyboard as kb_request_keyboard
-from keyboards.confirm import confirm_kb as _confirm_kb  # штатная Да/Нет клавиатура
-from utils.auth import require_manager_or_admin_callback
-from utils.info import get_chat_name
-
 from gutils.sheets import (
     get_firm_balance,
     SheetsNotConfigured,
     SheetsReadError,
 )
+from keyboards.confirm import confirm_kb as _confirm_kb  # штатная Да/Нет клавиатура
+from utils.auth import require_manager_or_admin_callback
+from utils.info import get_chat_name
 
 STATUS_LINE_DONE = "Статус: Занесена в таблицу ✅"
 STATUS_LINE_ISSUED = "Статус: Выдано ✅"
@@ -96,18 +94,13 @@ def _append_status_once(text: str, status_line: str) -> str:
 
 
 async def post_request_message(
-        bot: Bot,
-        request_chat_id: int,
-        text: str,
-        *,
-        reply_markup: Optional[InlineKeyboardMarkup] = None,
-        disable_notification: bool = False,
+    bot: Bot,
+    request_chat_id: int,
+    text: str,
+    *,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    disable_notification: bool = False,
 ) -> None:
-    if reply_markup is None:
-        reply_markup = kb_request_keyboard(
-            cb_partner=CB_PARTNER,
-            cb_table_done=CB_TABLE_DONE,
-        )
     await bot.send_message(
         chat_id=request_chat_id,
         text=text,

@@ -19,15 +19,16 @@ from utils.auth import require_manager_or_admin_message
 
 # команды → (тип, валюта)
 CMD_MAP = {
-    "депр": ("dep", "RUB"), "депт": ("dep", "USDT"), "депд": ("dep", "USD"), "депе": ("dep", "EUR"),
-    "депб": ("dep", "USDW"),
-    "выдр": ("wd", "RUB"), "выдт": ("wd", "USDT"), "выдд": ("wd", "USD"), "выде": ("wd", "EUR"), "выдб": ("wd", "USDW"),
+    "депр": ("dep", "RUB"),  "депт": ("dep", "USDT"), "депд": ("dep", "USD"),
+    "депе": ("dep", "EUR"),  "депб": ("dep", "USDW"),
+    "выдр": ("wd",  "RUB"),  "выдт": ("wd",  "USDT"), "выдд": ("wd",  "USD"),
+    "выде": ("wd",  "EUR"),  "выдб": ("wd",  "USDW"),
 }
 
 # @username: буквы, цифры, подчёркивание, от 5 символов
+# ВАЖНО: второй @кто_примет — ОПЦИОНАЛЬНЫЙ
 RE_CMD = re.compile(
-    r"^/(депр|депт|депд|депе|депб|выдр|выдт|выдд|выде|выдб)(?:@\w+)?\s+(.+?)\s+(@[A-Za-z0-9_]{5,})\s+(@[A-Za-z0-9_]{"
-    r"5,})\s*$",
+    r"^/(депр|депт|депд|депе|депб|выдр|выдт|выдд|выде|выдб)(?:@\w+)?\s+(.+?)\s+(@[A-Za-z0-9_]{5,})(?:\s+(@[A-Za-z0-9_]{5,}))?\s*$",
     flags=re.IGNORECASE | re.UNICODE,
 )
 
@@ -35,8 +36,8 @@ RE_CMD = re.compile(
 class CashRequestsHandler:
     """
     Универсальные заявки наличных:
-      /депр|депт|депд|депе <сумма/expr> <@кто_принесёт> <@кто_примет>
-      /выдр|выдт|выдд|выде <сумма/expr> <@кто_принесёт> <@кто_примет>
+      /депр|депт|депд|депе|депб <сумма/expr> <@кто_принесёт> [@кто_примет]
+      /выдр|выдт|выдд|выде|выдб <сумма/expr> <@кто_принесёт> [@кто_примет]
 
     В чат клиента: заявка + кнопка «Выдано» (жмут менеджеры).
     В заявочный чат: заявка отправляется ТОЛЬКО после нажатия «Выдано»
@@ -77,17 +78,17 @@ class CashRequestsHandler:
         if not m:
             await message.answer(
                 "Форматы:\n"
-                "• /депр|депт|депд|депе <сумма/expr> <@кто_принесёт> <@кто_примет>\n"
-                "• /выдр|выдт|выдд|выде <сумма/expr> <@кто_принесёт> <@кто_примет>\n"
+                "• /депр|депт|депд|депе|депб <сумма/expr> <@кто_принесёт> [@кто_примет]\n"
+                "• /выдр|выдт|выдд|выде|выдб <сумма/expr> <@кто_принесёт> [@кто_примет]\n"
                 "Напр.: /депр 150000 @vasya_courier @petya_cashier\n"
-                "       /выдр (700+300) @irina_mgr @nikita_cashier"
+                "       /выдр (700+300) @irina_mgr"
             )
             return
 
         cmd = m.group(1).lower()
         amount_expr = m.group(2).strip()
         tg_from = m.group(3).strip()
-        tg_to = m.group(4).strip()
+        tg_to = (m.group(4) or "").strip()  # может быть пустым
 
         kind, code = CMD_MAP.get(cmd, (None, None))
         if not kind or not code:
@@ -129,18 +130,20 @@ class CashRequestsHandler:
                 "-----",
                 f"Депозит: <code>{pretty_amt} {code.lower()}</code>",
                 f"Кто приносит: <code>{html.escape(tg_from)}</code>",
-                f"Кто примет: <code>{html.escape(tg_to)}</code>",
-                f"Код получения: <tg-spoiler>{pin_code}</tg-spoiler>",
             ]
+            if tg_to:
+                lines.append(f"Кто примет: <code>{html.escape(tg_to)}</code>")
+            lines.append(f"Код получения: <tg-spoiler>{pin_code}</tg-spoiler>")
         else:
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Выдача: <code>{pretty_amt} {code.lower()}</code>",
                 f"Кто приносит: <code>{html.escape(tg_from)}</code>",
-                f"Кто примет: <code>{html.escape(tg_to)}</code>",
-                f"Код выдачи: <tg-spoiler>{pin_code}</tg-spoiler>",
             ]
+            if tg_to:
+                lines.append(f"Кто примет: <code>{html.escape(tg_to)}</code>")
+            lines.append(f"Код выдачи: <tg-spoiler>{pin_code}</tg-spoiler>")
 
         text = "\n".join(lines)
 
