@@ -25,7 +25,7 @@ class UsdtWalletHandler:
             await message.answer("USDT-кошелёк пока не задан.")
             return
         # просто текст, без парсинга — чтобы адрес копировался целиком
-        await message.answer(f"USDT кошелёк:\n<code>{html.escape(addr)}</code>", parse_mode="HTML")
+        await message.answer(f"USDT TRC-20 кошелёк:\n<code>{html.escape(addr)}</code>", parse_mode="HTML")
 
     async def _cmd_set(self, message: Message) -> None:
         # менять кошелёк можно только из админского чата

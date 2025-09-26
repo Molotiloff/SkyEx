@@ -4,8 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="managers access fix">
+    <list default="true" id="07bc20c3-80a1-4af1-98b9-7065c63a0475" name="Changes" comment="hotfix for /заявка">
       <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handlers/accept_short.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/accept_short.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/handlers/cash_requests.py" beforeDir="false" afterPath="$PROJECT_DIR$/handlers/cash_requests.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/utils/exchange_base.py" beforeDir="false" afterPath="$PROJECT_DIR$/utils/exchange_base.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -127,14 +131,23 @@
       <option name="project" value="LOCAL" />
       <updated>1758701249968</updated>
     </task>
-    <option name="localTasksCounter" value="8" />
+    <task id="LOCAL-00008" summary="hotfix for /заявка">
+      <option name="closed" value="true" />
+      <created>1758820449277</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1758820449277</updated>
+    </task>
+    <option name="localTasksCounter" value="9" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="start" />
     <MESSAGE value="/rmclient add" />
     <MESSAGE value="managers access fix" />
-    <option name="LAST_COMMIT_MESSAGE" value="managers access fix" />
+    <MESSAGE value="hotfix for /заявка" />
+    <option name="LAST_COMMIT_MESSAGE" value="hotfix for /заявка" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
