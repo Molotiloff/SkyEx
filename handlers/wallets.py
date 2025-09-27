@@ -320,6 +320,20 @@ class WalletsHandler:
                     await cq.message.edit_reply_markup(reply_markup=None)
                 except Exception:
                     pass
+                # Показать балансы даже если уже отменяли (на всякий случай)
+                try:
+                    chat_name = get_chat_name(cq.message)
+                    client_id = await self.repo.ensure_client(chat_id, chat_name)
+                    rows = await self.repo.snapshot_wallet(client_id)
+                    compact = format_wallet_compact(rows, only_nonzero=True)
+                    if compact == "Пусто":
+                        await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+                    else:
+                        safe_title = html.escape(f"Средств у {chat_name}:")
+                        safe_rows = html.escape(compact)
+                        await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+                except Exception:
+                    pass
                 return
 
             try:
@@ -329,8 +343,10 @@ class WalletsHandler:
                 return
 
             try:
-                chat_name = cq.message.chat.title if cq.message and cq.message.chat else ""
+                chat_name = get_chat_name(cq.message)
                 client_id = await self.repo.ensure_client(chat_id, chat_name)
+
+                # Инверсная операция
                 if sign == "+":
                     await self.repo.withdraw(
                         client_id=client_id,
@@ -355,17 +371,30 @@ class WalletsHandler:
 
                 await undo_registry.mark_done(key)
 
+                # Обновляем текст исходного сообщения и убираем клавиатуру
                 try:
                     old_text = cq.message.text or ""
                     new_text = old_text + "\n↩️ Отменено."
                     await cq.message.edit_text(new_text)
                 except Exception:
                     pass
-
                 try:
                     await cq.message.edit_reply_markup(reply_markup=None)
                 except Exception:
                     pass
+
+                # Показать актуальные балансы
+                try:
+                    rows = await self.repo.snapshot_wallet(client_id)
+                    compact = format_wallet_compact(rows, only_nonzero=True)
+                    if compact == "Пусто":
+                        await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+                    else:
+                        safe_title = html.escape(f"Средств у {chat_name}:")
+                        safe_rows = html.escape(compact)
+                        await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+                except Exception as e:
+                    await cq.message.answer(f"Не удалось показать балансы: {e}")
 
                 await cq.answer("Откат выполнен")
             except Exception as e:
