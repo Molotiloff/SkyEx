@@ -7,8 +7,8 @@ CB_ISSUE_DONE = "req:issue_done"
 
 
 def request_keyboard(
-        cb_partner: str = CB_PARTNER,
-        cb_table_done: str = CB_TABLE_DONE,
+    cb_partner: str = CB_PARTNER,
+    cb_table_done: str = CB_TABLE_DONE,
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура для ЗАЯВОЧНОГО чата:
@@ -23,11 +23,16 @@ def request_keyboard(
 
 
 def issue_keyboard(
-        cb_issue_done: str = CB_ISSUE_DONE,
+    cb_issue_done: str = CB_ISSUE_DONE,
+    req_id: int | None = None,
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура для КЛИЕНТСКОГО чата:
     - Выдано
+    Можно передавать req_id, чтобы в callback_data был связан с конкретной заявкой.
     """
+    if req_id:
+        cb_issue_done = f"{cb_issue_done}:{req_id}"
+
     rows = [[InlineKeyboardButton(text="Выдано", callback_data=cb_issue_done)]]
     return InlineKeyboardMarkup(inline_keyboard=rows)

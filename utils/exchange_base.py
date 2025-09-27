@@ -1,18 +1,41 @@
 # utils/exchange_base.py
 from __future__ import annotations
-import random
+
 import html
+import random
+import re
 from abc import ABC
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
+from utils.calc import CalcError, evaluate
 from utils.format_wallet_compact import format_wallet_compact
-from utils.info import _fmt_rate, get_chat_name
-from utils.calc import evaluate, CalcError
 from utils.formatting import format_amount_core
+from utils.info import _fmt_rate, get_chat_name
 from utils.requests import post_request_message
+
+
+# --- Вспомогательное: парсинг строк из старой заявки ---
+_SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
+_RE_GET = re.compile(r"^Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M | re.I)
+_RE_GIVE = re.compile(r"^Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M | re.I)
+
+
+def _parse_amt_code(payload: str) -> tuple[Decimal, str] | None:
+    """'100'000.00 rub' -> (Decimal(...), 'RUB')"""
+    try:
+        amt_str, code = payload.rsplit(" ", 1)
+    except ValueError:
+        return None
+    for ch in _SEP:
+        amt_str = amt_str.replace(ch, "")
+    amt_str = amt_str.replace(",", ".").strip()
+    try:
+        return Decimal(amt_str), code.strip().upper()
+    except Exception:
+        return None
 
 
 class AbstractExchangeHandler(ABC):
@@ -24,6 +47,156 @@ class AbstractExchangeHandler(ABC):
         self.repo = repo
         self.request_chat_id = request_chat_id
 
+    # ================================================================
+    # Перерасчёт баланса при редактировании существующей заявки
+    # (используется хендлером при ответе на сообщение бота)
+    # ================================================================
+    async def apply_edit_delta(
+        self,
+        *,
+        client_id: int,
+        old_request_text: str,
+        recv_code_new: str,
+        pay_code_new: str,
+        recv_amount_new: Decimal,  # уже квантованные суммы
+        pay_amount_new: Decimal,   # уже квантованные суммы
+        recv_prec: int,
+        pay_prec: int,
+        chat_id: int,
+        target_bot_msg_id: int,
+        cmd_msg_id: int,
+        recv_is_deposit: bool,     # как проводится левая нога в этой команде
+        pay_is_withdraw: bool,     # как проводится правая нога в этой команде
+    ) -> bool:
+        """
+        Сравнивает «старую» заявку (по тексту) и новые параметры.
+        Аккуратно откатывает/доначисляет разницу с идемпотентными ключами.
+        Возвращает True, если перерасчёт выполнен; False — если не удалось распарсить старые суммы.
+        """
+        mg = _RE_GET.search(old_request_text or "")
+        mp = _RE_GIVE.search(old_request_text or "")
+        if not (mg and mp):
+            return False
+
+        parsed_get = _parse_amt_code(mg.group(1))
+        parsed_give = _parse_amt_code(mp.group(1))
+        if not (parsed_get and parsed_give):
+            return False
+
+        old_recv_amt_raw, old_recv_code = parsed_get
+        old_pay_amt_raw, old_pay_code = parsed_give
+
+        q_recv = Decimal(10) ** -recv_prec
+        q_pay = Decimal(10) ** -pay_prec
+        old_recv_amt = old_recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
+        old_pay_amt = old_pay_amt_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
+
+        idem_prefix = f"edit:{chat_id}:{target_bot_msg_id}:{cmd_msg_id}"
+
+        async def _apply_recv(amount: Decimal, suffix: str) -> None:
+            if recv_is_deposit:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=recv_code_new, amount=amount,
+                    comment=f"edit recv {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
+                )
+            else:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=recv_code_new, amount=amount,
+                    comment=f"edit recv {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
+                )
+
+        async def _apply_pay(amount: Decimal, suffix: str) -> None:
+            if pay_is_withdraw:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=pay_code_new, amount=amount,
+                    comment=f"edit pay {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:pay",
+                )
+            else:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=pay_code_new, amount=amount,
+                    comment=f"edit pay {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:pay",
+                )
+
+        # Если валюты поменялись — откатываем старую заявку и применяем новую
+        if (old_recv_code != recv_code_new) or (old_pay_code != pay_code_new):
+            # Откат старой левой ноги
+            if recv_is_deposit:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=old_recv_code, amount=old_recv_amt,
+                    comment="edit revert old recv", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:revert:recv",
+                )
+            else:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=old_recv_code, amount=old_recv_amt,
+                    comment="edit revert old recv", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:revert:recv",
+                )
+            # Откат старой правой ноги
+            if pay_is_withdraw:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=old_pay_code, amount=old_pay_amt,
+                    comment="edit revert old pay", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:revert:pay",
+                )
+            else:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=old_pay_code, amount=old_pay_amt,
+                    comment="edit revert old pay", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:revert:pay",
+                )
+            # Новые суммы
+            await _apply_recv(recv_amount_new, "apply")
+            await _apply_pay(pay_amount_new, "apply")
+            return True
+
+        # Валюты те же — доначисляем дельты
+        d_recv = recv_amount_new - old_recv_amt
+        d_pay = pay_amount_new - old_pay_amt
+
+        # Левая нога (принимаем)
+        if d_recv > 0:
+            await _apply_recv(d_recv, "delta+")
+        elif d_recv < 0:
+            if recv_is_deposit:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=recv_code_new, amount=(-d_recv),
+                    comment="edit recv delta-", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:delta-:recv",
+                )
+            else:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=recv_code_new, amount=(-d_recv),
+                    comment="edit recv delta-", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:delta-:recv",
+                )
+
+        # Правая нога (отдаём)
+        if d_pay > 0:
+            await _apply_pay(d_pay, "delta+")
+        elif d_pay < 0:
+            if pay_is_withdraw:
+                await self.repo.deposit(
+                    client_id=client_id, currency_code=pay_code_new, amount=(-d_pay),
+                    comment="edit pay delta-", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:delta-:pay",
+                )
+            else:
+                await self.repo.withdraw(
+                    client_id=client_id, currency_code=pay_code_new, amount=(-d_pay),
+                    comment="edit pay delta-", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:delta-:pay",
+                )
+
+        return True
+
+    # ================================================================
+    # Создание новой заявки с проведением двух ног обмена
+    # ================================================================
     async def process(
         self,
         message: Message,
@@ -67,7 +240,7 @@ class AbstractExchangeHandler(ABC):
             if not acc_recv or not acc_pay:
                 missing = recv_code if not acc_recv else pay_code
                 await message.answer(
-                    f"Счёт {missing} не найден. Добавьте валюту командой: /addcur {missing} [точность]"
+                    f"Счёт {missing} не найден. Добавьте валюту командой: /добавь {missing} [точность]"
                 )
                 return
 
@@ -127,7 +300,7 @@ class AbstractExchangeHandler(ABC):
             # Клиенту — без строки «Клиент» и без формулы
             client_text = "\n".join(base_lines)
 
-            # В заявочный чат — добавляем строку «Клиент» сразу после номера заявки + формулу
+            # В заявочный чат — строка «Клиент» сразу после номера заявки + формула
             request_lines = [
                 f"Заявка: <code>{req_id}</code>",
                 f"Клиент: <b>{html.escape(chat_name)}</b>",
@@ -189,6 +362,7 @@ class AbstractExchangeHandler(ABC):
                     )
 
             except Exception as leg_err:
+                # компенсируем первую ногу (best-effort)
                 try:
                     if recv_is_deposit:
                         await self.repo.withdraw(
@@ -212,10 +386,30 @@ class AbstractExchangeHandler(ABC):
                     await message.answer(f"Не удалось выполнить обмен: {leg_err}")
                     return
 
-            # 7) клиенту
-            await message.answer(client_text, parse_mode="HTML")
+            # 7) клиенту — ответом на исходную команду (чтобы тредился)
+            try:
+                sent = await message.answer(
+                    client_text,
+                    parse_mode="HTML",
+                    reply_to_message_id=message.message_id,
+                )
+            except Exception:
+                sent = None
 
-            # 7.1) заявочный чат
+            # 7.1) запоминаем связь «команда → сообщение бота» для последующего редактирования
+            if sent is not None:
+                try:
+                    from utils.req_index import req_index
+                    req_index.remember(
+                        chat_id=message.chat.id,
+                        user_cmd_msg_id=message.message_id,
+                        bot_msg_id=sent.message_id,
+                        req_id=str(req_id),
+                    )
+                except Exception:
+                    pass
+
+            # 7.2) в заявочный чат — без кнопок
             if self.request_chat_id:
                 try:
                     await post_request_message(
@@ -227,10 +421,9 @@ class AbstractExchangeHandler(ABC):
                 except Exception:
                     pass
 
-            # 8) счета
+            # 8) счета (ненулевые) после операции
             accounts2 = await self.repo.snapshot_wallet(client_id)
             compact = format_wallet_compact(accounts2, only_nonzero=True)
-
             if compact == "Пусто":
                 await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
             else:
