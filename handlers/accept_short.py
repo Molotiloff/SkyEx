@@ -5,16 +5,19 @@ import html
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Iterable
+from typing import Iterable, Optional, Tuple
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_asyncpg.repo import Repo
 from utils.exchange_base import AbstractExchangeHandler
 from utils.calc import evaluate, CalcError
-from utils.auth import require_manager_or_admin_message
+from utils.auth import (
+    require_manager_or_admin_message,
+    require_manager_or_admin_callback,
+)
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.requests import post_request_message
@@ -29,6 +32,35 @@ def _fmt_rate(d: Decimal) -> str:
 
 # Ищем номер заявки в тексте сообщения бота
 _RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.IGNORECASE)
+
+# Для парсинга сумм из текста заявки
+_RE_GET = re.compile(r"^\s*Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
+_RE_GIVE = re.compile(r"^\s*Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
+_SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
+
+
+def _parse_amt_code(blob: str) -> Optional[Tuple[Decimal, str]]:
+    """'150 000 rub' → (Decimal('150000'), 'RUB')"""
+    try:
+        amt_str, code = blob.rsplit(" ", 1)
+    except ValueError:
+        return None
+    for ch in _SEP:
+        amt_str = amt_str.replace(ch, "")
+    amt_str = amt_str.replace(",", ".").strip()
+    try:
+        amt = Decimal(amt_str)
+    except InvalidOperation:
+        return None
+    return amt, code.strip().upper()
+
+
+def _cancel_kb(req_id: int | str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Отменить заявку", callback_data=f"req_cancel:{req_id}")]
+        ]
+    )
 
 
 class AcceptShortHandler(AbstractExchangeHandler):
@@ -211,13 +243,14 @@ class AcceptShortHandler(AbstractExchangeHandler):
             except Exception as e:
                 await message.answer(f"Не удалось пересчитать балансы: {e}")
 
-            # Обновляем текст заявки
+            # Обновляем текст заявки — И СНОВА СТАВИМ КНОПКУ ОТМЕНЫ
             try:
                 await message.bot.edit_message_text(
                     chat_id=message.chat.id,
                     message_id=target_bot_msg_id,
                     text=new_client_text,
                     parse_mode="HTML",
+                    reply_markup=_cancel_kb(edit_req_id),
                 )
             except Exception as e:
                 await message.answer(f"Не удалось изменить заявку: {e}")
@@ -261,6 +294,126 @@ class AcceptShortHandler(AbstractExchangeHandler):
             note=user_note or None,
         )
 
+    # ====== КОЛЛБЭК ОТМЕНЫ ЗАЯВКИ ======
+    async def _cb_cancel(self, cq: CallbackQuery) -> None:
+        if not await require_manager_or_admin_callback(
+            self.repo, cq,
+            admin_chat_ids=self.admin_chat_ids,
+            admin_user_ids=self.admin_user_ids,
+        ):
+            return
+
+        msg = cq.message
+        if not msg or not msg.text:
+            await cq.answer("Нет сообщения", show_alert=True)
+            return
+
+        # извлечём req_id из callback_data (формат: req_cancel:<id>)
+        try:
+            _, req_id_s = (cq.data or "").split(":", 1)
+        except Exception:
+            await cq.answer("Некорректные данные", show_alert=True)
+            return
+
+        # парсим суммы/коды из текста
+        m_get = _RE_GET.search(msg.text)
+        m_give = _RE_GIVE.search(msg.text)
+        if not (m_get and m_give):
+            await cq.answer("Не удалось распознать заявку", show_alert=True)
+            return
+
+        p_get = _parse_amt_code(m_get.group(1))
+        p_give = _parse_amt_code(m_give.group(1))
+        if not (p_get and p_give):
+            await cq.answer("Не удалось распознать суммы", show_alert=True)
+            return
+
+        recv_amt_raw, recv_code = p_get         # слева «Получаем» (в этой команде это была списанная у клиента сумма)
+        pay_amt_raw,  pay_code  = p_give        # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
+
+        chat_id = msg.chat.id
+        chat_name = get_chat_name(msg)
+        client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
+        accounts = await self.repo.snapshot_wallet(client_id)
+
+        def _find_acc(code: str):
+            return next((r for r in accounts if str(r["currency_code"]).upper() == code.upper()), None)
+
+        acc_recv = _find_acc(recv_code)
+        acc_pay = _find_acc(pay_code)
+        if not acc_recv or not acc_pay:
+            await cq.answer("Счёта клиента изменились. Проверьте /кошелек", show_alert=True)
+            return
+
+        recv_prec = int(acc_recv["precision"])
+        pay_prec = int(acc_pay["precision"])
+        q_recv = Decimal(10) ** -recv_prec
+        q_pay  = Decimal(10) ** -pay_prec
+        recv_amt = recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
+        pay_amt  = pay_amt_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+
+        # Идемпотентные ключи отмены по id сообщения с заявкой
+        idem_left  = f"cancel:{chat_id}:{msg.message_id}:recv"
+        idem_right = f"cancel:{chat_id}:{msg.message_id}:pay"
+
+        try:
+            # В этой команде изначально было: LEFT = withdraw, RIGHT = deposit.
+            # Откат: LEFT → deposit (вернуть), RIGHT → withdraw (забрать).
+            await self.repo.deposit(
+                client_id=client_id,
+                currency_code=recv_code,
+                amount=recv_amt,
+                comment=f"cancel req {req_id_s}",
+                source="exchange_cancel",
+                idempotency_key=idem_left,
+            )
+            await self.repo.withdraw(
+                client_id=client_id,
+                currency_code=pay_code,
+                amount=pay_amt,
+                comment=f"cancel req {req_id_s}",
+                source="exchange_cancel",
+                idempotency_key=idem_right,
+            )
+        except Exception as e:
+            await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
+            return
+
+        # правим сообщение — убираем клавиатуру и помечаем отмену
+        try:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            new_text = f"{msg.text}\n----\nОтмена: <code>{ts}</code>"
+            await msg.edit_text(new_text, parse_mode="HTML", reply_markup=None)
+        except Exception:
+            try:
+                await msg.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+        # уведомление в заявочный чат
+        if self.request_chat_id:
+            try:
+                await post_request_message(
+                    bot=cq.bot,
+                    request_chat_id=self.request_chat_id,
+                    text=f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.",
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+
+        # показать актуальные ненулевые балансы
+        rows = await self.repo.snapshot_wallet(client_id)
+        compact = format_wallet_compact(rows, only_nonzero=True)
+        if compact == "Пусто":
+            await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+        else:
+            safe_title = html.escape(f"Средств у {chat_name}:")
+            safe_rows = html.escape(compact)
+            await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+
+        await cq.answer("Заявка отменена")
+
     def _register(self) -> None:
         self.router.message.register(self._cmd_accept_short, Command("пд"))
         self.router.message.register(self._cmd_accept_short, Command("пе"))
@@ -271,3 +424,5 @@ class AcceptShortHandler(AbstractExchangeHandler):
             self._cmd_accept_short,
             F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб)(?:@\w+)?\b"),
         )
+        # обработчик коллбэка отмены
+        self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))

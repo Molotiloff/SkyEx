@@ -7,7 +7,7 @@ import re
 from abc import ABC
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_asyncpg.repo import Repo
 from utils.calc import CalcError, evaluate
@@ -36,6 +36,15 @@ def _parse_amt_code(payload: str) -> tuple[Decimal, str] | None:
         return Decimal(amt_str), code.strip().upper()
     except Exception:
         return None
+
+
+def _cancel_kb(req_id: int | str) -> InlineKeyboardMarkup:
+    """Кнопка под клиентской заявкой — «Отменить заявку»."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Отменить заявку", callback_data=f"req_cancel:{req_id}")]
+        ]
+    )
 
 
 class AbstractExchangeHandler(ABC):
@@ -386,17 +395,18 @@ class AbstractExchangeHandler(ABC):
                     await message.answer(f"Не удалось выполнить обмен: {leg_err}")
                     return
 
-            # 7) клиенту — ответом на исходную команду (чтобы тредился)
+            # 7) клиенту — ответом на исходную команду (тред) + кнопка «Отменить заявку»
             try:
                 sent = await message.answer(
                     client_text,
                     parse_mode="HTML",
                     reply_to_message_id=message.message_id,
+                    reply_markup=_cancel_kb(req_id),
                 )
             except Exception:
                 sent = None
 
-            # 7.1) запоминаем связь «команда → сообщение бота» для последующего редактирования
+            # 7.1) связываем команду и сообщение бота
             if sent is not None:
                 try:
                     from utils.req_index import req_index
@@ -409,7 +419,7 @@ class AbstractExchangeHandler(ABC):
                 except Exception:
                     pass
 
-            # 7.2) в заявочный чат — без кнопок
+            # 7.2) заявочный чат — без кнопок
             if self.request_chat_id:
                 try:
                     await post_request_message(
