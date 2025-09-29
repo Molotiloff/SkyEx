@@ -167,7 +167,7 @@ class CashRequestsHandler:
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Депозит: <code>{pretty_amt} {code.lower()}</code>",
-                f"Кто приносит: <code>{html.escape(tg_from)}</code>",
+                f"Кто выдает: <code>{html.escape(tg_from)}</code>",
             ]
             if tg_to:
                 lines.append(f"Кто примет: <code>{html.escape(tg_to)}</code>")
@@ -177,7 +177,7 @@ class CashRequestsHandler:
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Выдача: <code>{pretty_amt} {code.lower()}</code>",
-                f"Кто приносит: <code>{html.escape(tg_from)}</code>",
+                f"Кто выдает: <code>{html.escape(tg_from)}</code>",
             ]
             if tg_to:
                 lines.append(f"Кто примет: <code>{html.escape(tg_to)}</code>")
