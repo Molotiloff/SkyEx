@@ -36,6 +36,7 @@ _RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.I
 # Для парсинга сумм из текста заявки
 _RE_GET = re.compile(r"^\s*Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
 _RE_GIVE = re.compile(r"^\s*Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
+_RE_CREATED_BY = re.compile(r"^\s*Создал:\s*(?:<b>)?(.+?)(?:</b>)?\s*$", re.I | re.M)
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 
 
@@ -208,6 +209,25 @@ class AcceptShortHandler(AbstractExchangeHandler):
         # === РЕЖИМ РЕДАКТИРОВАНИЯ ===
         if is_edit and edit_req_id and target_bot_msg_id:
             # Собираем новый текст для клиента (без «Клиент» и без «Формула»)
+
+            # --- NEW: определяем, кто создал заявку ---
+            creator_name: str | None = None
+            if reply_msg and reply_msg.text:
+                m_created = _RE_CREATED_BY.search(reply_msg.text)
+                if m_created:
+                    creator_name = m_created.group(1).strip()
+
+            if not creator_name:
+                u = getattr(message, "from_user", None)
+                if u:
+                    creator_name = (
+                            getattr(u, "full_name", None)
+                            or (f"@{u.username}" if getattr(u, "username", None) else None)
+                            or f"id:{u.id}"
+                    )
+            creator_name = creator_name or "unknown"
+            # --- /NEW ---
+
             parts_client = [
                 f"Заявка: <code>{edit_req_id}</code>",
                 "-----",
@@ -217,6 +237,10 @@ class AcceptShortHandler(AbstractExchangeHandler):
             ]
             if user_note:
                 parts_client += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
+
+            # --- NEW: подпись создателя всегда внизу заявки ---
+            parts_client += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
+
             ts = datetime.now().strftime("%Y-%m-%d %H:%M")
             parts_client += ["----", f"Изменение: <code>{ts}</code>"]
             new_client_text = "\n".join(parts_client)
@@ -329,7 +353,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             return
 
         recv_amt_raw, recv_code = p_get         # слева «Получаем» (в этой команде это была списанная у клиента сумма)
-        pay_amt_raw,  pay_code  = p_give        # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
+        pay_amt_raw,  pay_code = p_give        # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
 
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
@@ -348,12 +372,12 @@ class AcceptShortHandler(AbstractExchangeHandler):
         recv_prec = int(acc_recv["precision"])
         pay_prec = int(acc_pay["precision"])
         q_recv = Decimal(10) ** -recv_prec
-        q_pay  = Decimal(10) ** -pay_prec
+        q_pay = Decimal(10) ** -pay_prec
         recv_amt = recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amt  = pay_amt_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_amt = pay_amt_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
 
         # Идемпотентные ключи отмены по id сообщения с заявкой
-        idem_left  = f"cancel:{chat_id}:{msg.message_id}:recv"
+        idem_left = f"cancel:{chat_id}:{msg.message_id}:recv"
         idem_right = f"cancel:{chat_id}:{msg.message_id}:pay"
 
         try:
@@ -402,15 +426,20 @@ class AcceptShortHandler(AbstractExchangeHandler):
             except Exception:
                 pass
 
-        # показать актуальные ненулевые балансы
+        # показать актуальные балансы И сообщить об отмене — одним сообщением в клиентский чат
         rows = await self.repo.snapshot_wallet(client_id)
         compact = format_wallet_compact(rows, only_nonzero=True)
         if compact == "Пусто":
-            await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+            balances_block = "Все счета нулевые. Посмотреть всё: /кошелек"
         else:
             safe_title = html.escape(f"Средств у {chat_name}:")
             safe_rows = html.escape(compact)
-            await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+            balances_block = f"<code>{safe_title}\n\n{safe_rows}</code>"
+
+        await cq.message.answer(
+            f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n{balances_block}",
+            parse_mode="HTML",
+        )
 
         await cq.answer("Заявка отменена")
 

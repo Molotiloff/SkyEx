@@ -296,6 +296,20 @@ class AbstractExchangeHandler(ABC):
             pretty_recv = format_amount_core(recv_amount, recv_prec)
             pretty_pay = format_amount_core(pay_amount, pay_prec)
 
+            # имя создателя
+            creator_name = None
+            try:
+                u = getattr(message, "from_user", None)
+                if u:
+                    creator_name = (
+                        u.full_name
+                        or (f"@{u.username}" if getattr(u, "username", None) else None)
+                        or f"id:{u.id}"
+                    )
+            except Exception:
+                pass
+            creator_name = creator_name or "unknown"
+
             base_lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
@@ -305,11 +319,13 @@ class AbstractExchangeHandler(ABC):
             ]
             if note:
                 base_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
+            # подпись создателя внизу
+            base_lines += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
 
             # Клиенту — без строки «Клиент» и без формулы
             client_text = "\n".join(base_lines)
 
-            # В заявочный чат — строка «Клиент» сразу после номера заявки + формула
+            # В заявочный чат — строка «Клиент» сразу после номера заявки + формула + подпись создателя
             request_lines = [
                 f"Заявка: <code>{req_id}</code>",
                 f"Клиент: <b>{html.escape(chat_name)}</b>",
@@ -320,7 +336,12 @@ class AbstractExchangeHandler(ABC):
             ]
             if note:
                 request_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
-            request_lines += ["----", f"Формула: <code>{html.escape(pay_amount_expr)}</code>"]
+            request_lines += [
+                "----",
+                f"Формула: <code>{html.escape(pay_amount_expr)}</code>",
+                "----",
+                f"Создал: <b>{html.escape(creator_name)}</b>",
+            ]
 
             request_text = "\n".join(request_lines)
 

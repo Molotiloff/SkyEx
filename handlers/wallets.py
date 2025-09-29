@@ -28,16 +28,42 @@ def undo_kb(code: str, sign: str, amount_str: str) -> InlineKeyboardMarkup:
     )
 
 
+# ---- NEW: алиасы кодов валют (и латиница, и кириллица)
+# Пиши сюда новые синонимы при необходимости.
+_CURRENCY_ALIASES = {
+    # USD
+    "usd": "USD", "дол": "USD", "долл": "USD", "доллар": "USD", "доллары": "USD",
+    # USDT
+    "usdt": "USDT", "юсдт": "USDT",
+    # EUR
+    "eur": "EUR", "евро": "EUR",
+    # RUB
+    "rub": "RUB", "руб": "RUB", "рубль": "RUB", "рубли": "RUB", "рублей": "RUB", "руб.": "RUB", "рубль.": "RUB",
+    # USDW (условный «доллар белый», как в твоих примерах)
+    "usdw": "USDW", "долб": "USDW", "доллбел": "USDW", "долбел": "USDW",
+}
+
+
 def _normalize_code_alias(raw_code: str) -> str:
     """
     Нормализуем алиасы кодов валют из команды.
-    - «РУБ» (кириллица) приводим к стандартному ISO-коду RUB.
-    - остальное — UPPER без изменений.
+    Примеры:
+      /usd == /дол -> USD
+      /usdt == /юсдт -> USDT
+      /usdw == /долб == /доллбел -> USDW
+      /eur == /евро -> EUR
+      /rub == /руб -> RUB
     """
-    code_up = (raw_code or "").strip().upper()
-    if code_up == "РУБ":
+    key = (raw_code or "").strip().lower()
+    # сначала смотрим в алиасы
+    alias = _CURRENCY_ALIASES.get(key)
+    if alias:
+        return alias
+    # если не нашли — пробуем особый случай «РУБ» кириллицей в верхнем регистре
+    if key == "руб" or key == "рубль" or key == "рубли" or key == "рублей" or key == "руб.":
         return "RUB"
-    return code_up
+    # по умолчанию — просто верхний регистр исходного
+    return (raw_code or "").strip().upper()
 
 
 class WalletsHandler:
@@ -74,14 +100,13 @@ class WalletsHandler:
 
         parts = (message.text or "").split()
         if len(parts) < 2:
-            await message.answer("Использование: /удали КОД\nПример: /удали CNY")
+            await message.answer("Использование: /удали КОД\nПримеры: /удали USD, /удали дол, /удали юсдт")
             return
 
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id, chat_name)
 
-        # Нормализуем алиас «РУБ» → RUB
         code = _normalize_code_alias(parts[1])
 
         accounts = await self.repo.snapshot_wallet(client_id)
@@ -120,10 +145,12 @@ class WalletsHandler:
 
         parts = (message.text or "").split()
         if len(parts) < 2:
-            await message.answer("Использование: /добавь КОД [точность]\nПример: /добавь CNY 2")
+            await message.answer(
+                "Использование: /добавь КОД [точность]\n"
+                "Примеры: /добавь USD 2, /добавь дол 2, /добавь юсдт 0, /добавь доллбел 2"
+            )
             return
 
-        # ВАЖНО: запрещаем отдельную «РУБ», всегда нормализуем в RUB
         code = _normalize_code_alias(parts[1])
 
         precision = 2
@@ -144,7 +171,7 @@ class WalletsHandler:
         except Exception as e:
             await message.answer(f"Не удалось добавить валюту: {e}")
 
-    # Встроенное изменение баланса: /USD 250  |  /RUB -100  |  /USDT (25+5*3-15/5) | /руб 100
+    # Встроенное изменение баланса: /USD 250  |  /RUB -100  |  /USDT (25+5*3-15/5) | /руб 100 | /дол 10
     async def _on_currency_change(self, message: Message) -> None:
         if not await require_manager_or_admin_message(
             self.repo, message,
@@ -160,11 +187,10 @@ class WalletsHandler:
         if len(parts) < 2:
             await message.answer(
                 "Формат: /КОД ВАЛЮТЫ <сумма/выражение>\n"
-                "Примеры: /USD 250, /RUB -100, /USDT (25+5*3-15/5), /руб 1000"
+                "Примеры: /USD 250, /дол 250, /RUB -100, /руб 1000, /USDT (25+5*3-15/5), /юсдт 10"
             )
             return
 
-        # Нормализуем «/руб» → RUB
         code = _normalize_code_alias(parts[0])
         expr = parts[1].strip()
         if not expr:

@@ -9,6 +9,21 @@ from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
 
 
+# Человеческие названия валют для отображения
+_DISPLAY_NAMES_RU = {
+    "USD": "дол",
+    "USDT": "юсдт",
+    "EUR": "евро",
+    "RUB": "руб",
+    "USDW": "долб",   # «доллар белый»
+}
+
+
+def _display_code_ru(code: str) -> str:
+    """Вернуть человеко-читаемое имя валюты, если есть, иначе сам код в нижнем регистре."""
+    return _DISPLAY_NAMES_RU.get(code.upper(), code).lower()
+
+
 class NonZeroHandler:
     """
     /дай — показать все счета с ненулевым балансом (включая отрицательные),
@@ -16,7 +31,6 @@ class NonZeroHandler:
     """
     def __init__(self, repo: Repo, admin_chat_ids=None, admin_user_ids=None) -> None:
         self.repo = repo
-        # параметры оставлены для совместимости, но не используются
         self.router = Router()
         self._register()
 
@@ -26,8 +40,18 @@ class NonZeroHandler:
         client_id = await self.repo.ensure_client(chat_id, chat_name)
 
         rows = await self.repo.snapshot_wallet(client_id)
-        # фильтруем нули и печатаем в компактном формате (правый край, без дублирования кода валюты)
-        compact = format_wallet_compact(rows, only_nonzero=True)
+        if not rows:
+            await message.answer("Нет счетов. Добавьте валюту: /добавь USD 2")
+            return
+
+        # заменим коды валют на человеко-читаемые
+        renamed = []
+        for r in rows:
+            r2 = dict(r)
+            r2["currency_code"] = _display_code_ru(str(r["currency_code"]))
+            renamed.append(r2)
+
+        compact = format_wallet_compact(renamed, only_nonzero=True)
         if compact == "Пусто":
             await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
             return
