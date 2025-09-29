@@ -387,18 +387,22 @@ class WalletsHandler:
                     await cq.message.edit_reply_markup(reply_markup=None)
                 except Exception:
                     pass
-                # Показать балансы даже если уже отменяли (на всякий случай)
+                # Покажем ТОЛЬКО баланс по нужной валюте
                 try:
                     chat_name = get_chat_name(cq.message)
                     client_id = await self.repo.ensure_client(chat_id, chat_name)
                     rows = await self.repo.snapshot_wallet(client_id)
-                    compact = format_wallet_compact(rows, only_nonzero=True)
-                    if compact == "Пусто":
-                        await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+                    acc = next((r for r in rows if str(r["currency_code"]).upper() == code), None)
+                    if acc:
+                        precision = int(acc["precision"])
+                        cur_bal = Decimal(str(acc["balance"]))
+                        pretty_bal = format_amount_core(cur_bal, precision)
+                        await cq.message.answer(
+                            f"Баланс: {pretty_bal} {code.lower()}",
+                            parse_mode="HTML"
+                        )
                     else:
-                        safe_title = html.escape(f"Средств у {chat_name}:")
-                        safe_rows = html.escape(compact)
-                        await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+                        await cq.message.answer(f"Счёт {code} не найден.")
                 except Exception:
                     pass
                 return
@@ -415,6 +419,7 @@ class WalletsHandler:
 
                 # Инверсная операция
                 if sign == "+":
+                    # изначально был депозит, откат — списание
                     await self.repo.withdraw(
                         client_id=client_id,
                         currency_code=code,
@@ -423,7 +428,9 @@ class WalletsHandler:
                         source="undo",
                         idempotency_key=f"undo:{chat_id}:{msg_id}",
                     )
+                    applied_sign = "-"  # что реально применили в откате
                 elif sign == "-":
+                    # изначально было списание, откат — депозит
                     await self.repo.deposit(
                         client_id=client_id,
                         currency_code=code,
@@ -432,6 +439,7 @@ class WalletsHandler:
                         source="undo",
                         idempotency_key=f"undo:{chat_id}:{msg_id}",
                     )
+                    applied_sign = "+"
                 else:
                     await cq.answer("Некорректный знак", show_alert=True)
                     return
@@ -450,18 +458,23 @@ class WalletsHandler:
                 except Exception:
                     pass
 
-                # Показать актуальные балансы
+                # Показать только «Запомнил» и ТЕКУЩИЙ баланс по этой валюте
                 try:
                     rows = await self.repo.snapshot_wallet(client_id)
-                    compact = format_wallet_compact(rows, only_nonzero=True)
-                    if compact == "Пусто":
-                        await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+                    acc = next((r for r in rows if str(r["currency_code"]).upper() == code), None)
+                    if acc:
+                        precision = int(acc["precision"])
+                        cur_bal = Decimal(str(acc["balance"]))
+                        pretty_bal = format_amount_core(cur_bal, precision)
+                        pretty_delta = format_amount_with_sign(amount, precision, sign=applied_sign)
+                        await cq.message.answer(
+                            f"Запомнил. {pretty_delta}\nБаланс: {pretty_bal} {code.lower()}",
+                            parse_mode="HTML"
+                        )
                     else:
-                        safe_title = html.escape(f"Средств у {chat_name}:")
-                        safe_rows = html.escape(compact)
-                        await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+                        await cq.message.answer(f"Счёт {code} не найден.")
                 except Exception as e:
-                    await cq.message.answer(f"Не удалось показать балансы: {e}")
+                    await cq.message.answer(f"Не удалось показать баланс по {code}: {e}")
 
                 await cq.answer("Откат выполнен")
             except Exception as e:
