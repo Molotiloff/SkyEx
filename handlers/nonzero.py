@@ -50,7 +50,8 @@ class NonZeroHandler:
     """
     /дай — показать все счета с ненулевым балансом (включая отрицательные),
            в «компактном» формате (все валюты отображаются по-русски).
-    /дай <валюта> — показать баланс по конкретной валюте (даже если он нулевой).
+    /дай <валюта> — показать баланс по конкретной валюте (даже если он нулевой),
+           с тем же компактным выравниванием.
     """
     def __init__(self, repo: Repo, admin_chat_ids=None, admin_user_ids=None) -> None:
         self.repo = repo
@@ -72,7 +73,7 @@ class NonZeroHandler:
             await message.answer("Нет счетов. Добавьте валюту: /добавь USD 2")
             return
 
-        # Если указан код валюты — показываем только её баланс
+        # Если указан код валюты — показываем только её баланс (через compact для выравнивания)
         if arg_code:
             code = _normalize_code_alias(arg_code)
             acc = next((r for r in rows if str(r["currency_code"]).upper() == code), None)
@@ -82,15 +83,19 @@ class NonZeroHandler:
                 )
                 return
 
+            # готовим одну строку для компакта
             prec = int(acc.get("precision", 2))
             bal = acc.get("balance")
-            pretty = format_amount_core(bal, prec)
-            code_disp = _display_code_ru(code)
-            safe_title = html.escape(f"Средств у {chat_name}:")
-            await message.answer(
-                f"<code>{safe_title}\n\n{html.escape(pretty)} {html.escape(code_disp)}</code>",
-                parse_mode="HTML",
-            )
+            single_row = [{
+                "currency_code": _display_code_ru(code),  # человеко-читаемое имя, как в общем режиме
+                "balance": bal,
+                "precision": prec,
+            }]
+            compact_one = format_wallet_compact(single_row, only_nonzero=False)
+
+            safe_title = html.escape(f"У {chat_name}:")
+            safe_rows = html.escape(compact_one)
+            await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
             return
 
         # Иначе — режим «все ненулевые»
