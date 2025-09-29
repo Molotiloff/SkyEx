@@ -125,11 +125,11 @@ class ClientsBalancesHandler:
 
             for r in filtered:
                 name = html.escape(r.get("client_name") or "")
-                chat_id = r.get("chat_id")
                 bal = Decimal(str(r["balance"]))
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
-                out_lines.append(f"{name} (chat_id=<code>{chat_id}</code>)")
+                out_lines.append(f"{name}")
+                out_lines.append("-------")
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
                 out_lines.append("")
 
@@ -165,11 +165,11 @@ class ClientsBalancesHandler:
             ]
             for r in filtered:
                 name = html.escape(r.get("client_name") or "")
-                chat_id = r.get("chat_id")
                 bal = Decimal(str(r["balance"]))
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
-                out_lines.append(f"{name} (chat_id=<code>{chat_id}</code>)")
+                out_lines.append(f"{name}")
+                out_lines.append("-------")
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
                 out_lines.append("")
 
@@ -198,8 +198,8 @@ class ClientsBalancesHandler:
         out_lines: list[str] = ["Все ненулевые балансы:", ""]
         for cid, data in sorted(by_client.items(), key=lambda x: (x[1]["name"] or "").lower()):
             name = html.escape(data["name"])
-            chat_id = data["chat_id"]
-            out_lines.append(f"{name} (chat_id=<code>{chat_id}</code>)")
+            out_lines.append(f"{name}")
+            out_lines.append("-------")
             for code, prec, bal in sorted(data["items"]):
                 pretty = html.escape(format_amount_core(bal, prec))
                 out_lines.append(f"  {pretty} {code.lower()}")
