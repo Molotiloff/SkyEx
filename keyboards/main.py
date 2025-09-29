@@ -9,6 +9,7 @@ class MainKeyboard:
             keyboard=[
                 [KeyboardButton(text="/помоги")],
                 [KeyboardButton(text="/дай"), KeyboardButton(text="/кош")],
+                [KeyboardButton(text="/проходка")],
             ],
             resize_keyboard=True,
             input_field_placeholder="Выберите команду"
