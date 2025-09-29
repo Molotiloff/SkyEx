@@ -129,9 +129,8 @@ class ClientsBalancesHandler:
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
                 out_lines.append(f"{name}")
-                out_lines.append("-------")
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
-                out_lines.append("")
+                out_lines.append("—————————")
 
             text_out = "\n".join(out_lines)
             for chunk in _chunk(text_out):
@@ -169,9 +168,8 @@ class ClientsBalancesHandler:
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
                 out_lines.append(f"{name}")
-                out_lines.append("-------")
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
-                out_lines.append("")
+                out_lines.append("—————————")
 
             text_out = "\n".join(out_lines)
             for chunk in _chunk(text_out):
@@ -199,11 +197,10 @@ class ClientsBalancesHandler:
         for cid, data in sorted(by_client.items(), key=lambda x: (x[1]["name"] or "").lower()):
             name = html.escape(data["name"])
             out_lines.append(f"{name}")
-            out_lines.append("-------")
             for code, prec, bal in sorted(data["items"]):
                 pretty = html.escape(format_amount_core(bal, prec))
                 out_lines.append(f"  {pretty} {code.lower()}")
-            out_lines.append("")
+            out_lines.append("—————————")
 
         text_out = "\n".join(out_lines)
         for chunk in _chunk(text_out):
