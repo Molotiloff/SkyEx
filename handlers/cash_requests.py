@@ -167,20 +167,20 @@ class CashRequestsHandler:
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
-                f"Выдает: <code>{html.escape(tg_from)}</code>",
+                f"Выдает: {html.escape(tg_from)}",
             ]
             if tg_to:
-                lines.append(f"Кто примет: <code>{html.escape(tg_to)}</code>")
+                lines.append(f"Кто примет: {html.escape(tg_to)}")
             lines.append(f"Код получения: <tg-spoiler>{pin_code}</tg-spoiler>")
         else:
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
-                f"Выдает: <code>{html.escape(tg_from)}</code>",
+                f"Выдает: {html.escape(tg_from)}",
             ]
             if tg_to:
-                lines.append(f"Принимает: <code>{html.escape(tg_to)}</code>")
+                lines.append(f"Принимает: {html.escape(tg_to)}")
             lines.append(f"Код выдачи: <tg-spoiler>{pin_code}</tg-spoiler>")
 
         if comment:
