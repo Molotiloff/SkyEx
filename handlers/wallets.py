@@ -1,5 +1,6 @@
 # handlers/wallets.py
 import html
+import re
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 from aiogram import Router, F
@@ -43,22 +44,42 @@ _CURRENCY_ALIASES = {
     "usdw": "USDW", "долб": "USDW", "доллбел": "USDW", "долбел": "USDW",
 }
 
+# Разрешённые символы арифм. выражения
+_ALLOWED_EXPR_CHARS = r"0-9\.\,\+\-\*\/\(\)\s"
 
-def _strip_trailing_comment(s: str) -> str:
+
+def _extract_expr_prefix(s: str) -> str:
     """
-    Убираем необязательный текст-комментарий после выражения суммы.
+    Берём максимально длинный префикс строки, состоящий из допустимых
+    символов арифметики. Всё, что дальше — считаем комментарием и отбрасываем.
+    Также нормализуем десятичную запятую в точку.
+
     Примеры:
-      '1000 от сани'   -> '1000'
-      '(25+5)  # тест' -> '(25+5)'
-      '700 //принес'   -> '700'
+      '1000 от сани'        -> '1000'
+      '(25+5)  # тест'      -> '(25+5)'
+      '700 //принес очень'  -> '700'
+      '3000,50 просто текст'-> '3000.50'
     """
     if not s:
         return s
-    for sep in (" от ", " //", " #"):
-        idx = s.find(sep)
-        if idx != -1:
-            return s[:idx].strip()
-    return s.strip()
+    s = s.strip()
+
+    # Если всё выражение валидно, возвращаем как есть (с нормализацией запятых)
+    try:
+        _ = evaluate(s.replace(",", "."))
+        return s.replace(",", ".")
+    except Exception:
+        pass
+
+    # Иначе берём арифметический префикс
+    m = re.match(rf"^[{_ALLOWED_EXPR_CHARS}]+", s)
+    if not m:
+        return ""
+    expr = m.group(0).strip()
+
+    # нормализуем запятые как десятичные точки
+    expr = expr.replace(",", ".")
+    return expr
 
 
 def _normalize_code_alias(raw_code: str) -> str:
@@ -77,7 +98,7 @@ def _normalize_code_alias(raw_code: str) -> str:
     if alias:
         return alias
     # если не нашли — пробуем особый случай «РУБ» кириллицей в верхнем регистре
-    if key == "руб" or key == "рубль" or key == "рубли" or key == "рублей" or key == "руб.":
+    if key in ("руб", "рубль", "рубли", "рублей", "руб."):
         return "RUB"
     # по умолчанию — просто верхний регистр исходного
     return (raw_code or "").strip().upper()
@@ -210,9 +231,9 @@ class WalletsHandler:
 
         code = _normalize_code_alias(parts[0])
 
-        # было: expr = parts[1].strip()
+        # Вырезаем любой хвост-комментарий после арифм. выражения
         expr_full = parts[1].strip()
-        expr = _strip_trailing_comment(expr_full)   # <-- убираем «от сани», комментарии и т.п.
+        expr = _extract_expr_prefix(expr_full)
         if not expr:
             await message.answer("Сумма не указана. Пример: /USD 250")
             return
