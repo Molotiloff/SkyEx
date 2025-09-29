@@ -20,10 +20,10 @@ from utils.format_wallet_compact import format_wallet_compact
 
 # команды → (тип, валюта)
 CMD_MAP = {
-    "депр": ("dep", "RUB"),  "депт": ("dep", "USDT"), "депд": ("dep", "USD"),
-    "депе": ("dep", "EUR"),  "депб": ("dep", "USDW"),
-    "выдр": ("wd",  "RUB"),  "выдт": ("wd",  "USDT"), "выдд": ("wd",  "USD"),
-    "выде": ("wd",  "EUR"),  "выдб": ("wd",  "USDW"),
+    "депр": ("dep", "RUB"), "депт": ("dep", "USDT"), "депд": ("dep", "USD"),
+    "депе": ("dep", "EUR"), "депб": ("dep", "USDW"),
+    "выдр": ("wd", "RUB"), "выдт": ("wd", "USDT"), "выдд": ("wd", "USD"),
+    "выде": ("wd", "EUR"), "выдб": ("wd", "USDW"),
 }
 
 # Участник: @telegram или +телефон (6–15 цифр)
@@ -44,8 +44,9 @@ RE_CMD = re.compile(
 # Разбор строки вида:
 # "Депозит: <code>150 000 rub</code>" или "Выдача: <code>700 usdt</code>"
 _RE_LINE_DEP = re.compile(r"^\s*Депозит:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M)
-_RE_LINE_WD  = re.compile(r"^\s*Выдача:\s*(?:<code>)?(.+?)(?:</code>)?\s*$",  re.IGNORECASE | re.M)
+_RE_LINE_WD = re.compile(r"^\s*Выдача:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M)
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
+
 
 def _parse_amount_code(blob: str) -> Optional[Tuple[Decimal, str]]:
     """
@@ -77,12 +78,12 @@ class CashRequestsHandler:
     """
 
     def __init__(
-        self,
-        repo: Repo,
-        *,
-        admin_chat_ids: Iterable[int] | None = None,
-        admin_user_ids: Iterable[int] | None = None,
-        request_chat_id: int | None = None,
+            self,
+            repo: Repo,
+            *,
+            admin_chat_ids: Iterable[int] | None = None,
+            admin_user_ids: Iterable[int] | None = None,
+            request_chat_id: int | None = None,
     ) -> None:
         self.repo = repo
         self.admin_chat_ids = set(admin_chat_ids or [])
@@ -104,9 +105,9 @@ class CashRequestsHandler:
     async def _cmd_cash_req(self, message: Message) -> None:
         # доступ: менеджер / админ / админский чат
         if not await require_manager_or_admin_message(
-            self.repo, message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
+                self.repo, message,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
         ):
             return
 
@@ -161,26 +162,37 @@ class CashRequestsHandler:
         pin_code = random.randint(100000, 999999)
         pretty_amt = format_amount_core(amount, prec)
 
+        if tg_from[0] == "+":
+            temp_line = f"Выдает: <code>{html.escape(tg_from)}</code>"
+        else:
+            temp_line = f"Выдает: {html.escape(tg_from)}"
+
         # заголовки отличаются
         if kind == "dep":
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
-                f"Выдает: {html.escape(tg_from)}",
+                temp_line,
             ]
             if tg_to:
-                lines.append(f"Кто примет: {html.escape(tg_to)}")
+                if tg_to[0] == "+":
+                    lines.append(f"Принимает: <code>{html.escape(tg_to)}</code>")
+                else:
+                    lines.append(f"Принимает: {html.escape(tg_to)}")
             lines.append(f"Код получения: <tg-spoiler>{pin_code}</tg-spoiler>")
         else:
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
                 f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
-                f"Выдает: {html.escape(tg_from)}",
+                temp_line,
             ]
             if tg_to:
-                lines.append(f"Принимает: {html.escape(tg_to)}")
+                if tg_to[0] == "+":
+                    lines.append(f"Принимает: <code>{html.escape(tg_to)}</code>")
+                else:
+                    lines.append(f"Принимает: {html.escape(tg_to)}")
             lines.append(f"Код выдачи: <tg-spoiler>{pin_code}</tg-spoiler>")
 
         if comment:
@@ -212,9 +224,9 @@ class CashRequestsHandler:
 
         # проверка доступа по сообщению (тот же чат)
         if not await require_manager_or_admin_message(
-            self.repo, msg,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
+                self.repo, msg,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
         ):
             await cq.answer("Недостаточно прав.", show_alert=True)
             return
@@ -228,7 +240,7 @@ class CashRequestsHandler:
 
         # 1) парсим тип и сумму/валюту
         m_dep = _RE_LINE_DEP.search(text)
-        m_wd  = _RE_LINE_WD.search(text)
+        m_wd = _RE_LINE_WD.search(text)
         op_kind: Optional[str] = None  # "dep" | "wd"
         amt_code_raw: Optional[str] = None
 
