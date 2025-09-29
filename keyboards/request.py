@@ -1,4 +1,3 @@
-# keyboards/request.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 CB_PARTNER = "req:partner"
@@ -23,16 +22,15 @@ def request_keyboard(
 
 
 def issue_keyboard(
+    req_id: int,
+    kind: str,
     cb_issue_done: str = CB_ISSUE_DONE,
-    req_id: int | None = None,
 ) -> InlineKeyboardMarkup:
     """
     Клавиатура для КЛИЕНТСКОГО чата:
-    - Выдано
-    Можно передавать req_id, чтобы в callback_data был связан с конкретной заявкой.
+    - Кнопка «Выдано» с привязкой к заявке и типом операции.
+    callback_data = "req:issue_done:<kind>:<req_id>"
     """
-    if req_id:
-        cb_issue_done = f"{cb_issue_done}:{req_id}"
-
-    rows = [[InlineKeyboardButton(text="Выдано", callback_data=cb_issue_done)]]
+    cb_value = f"{cb_issue_done}:{kind}:{req_id}"
+    rows = [[InlineKeyboardButton(text="Выдано", callback_data=cb_value)]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
