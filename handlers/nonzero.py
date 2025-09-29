@@ -93,7 +93,7 @@ class NonZeroHandler:
             }]
             compact_one = format_wallet_compact(single_row, only_nonzero=False)
 
-            safe_title = html.escape(f"У {chat_name}:")
+            safe_title = html.escape(f"Средств у {chat_name}:")
             safe_rows = html.escape(compact_one)
             await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
             return
