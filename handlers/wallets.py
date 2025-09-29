@@ -44,6 +44,23 @@ _CURRENCY_ALIASES = {
 }
 
 
+def _strip_trailing_comment(s: str) -> str:
+    """
+    Убираем необязательный текст-комментарий после выражения суммы.
+    Примеры:
+      '1000 от сани'   -> '1000'
+      '(25+5)  # тест' -> '(25+5)'
+      '700 //принес'   -> '700'
+    """
+    if not s:
+        return s
+    for sep in (" от ", " //", " #"):
+        idx = s.find(sep)
+        if idx != -1:
+            return s[:idx].strip()
+    return s.strip()
+
+
 def _normalize_code_alias(raw_code: str) -> str:
     """
     Нормализуем алиасы кодов валют из команды.
@@ -187,18 +204,21 @@ class WalletsHandler:
         if len(parts) < 2:
             await message.answer(
                 "Формат: /КОД ВАЛЮТЫ <сумма/выражение>\n"
-                "Примеры: /USD 250, /дол 250, /RUB -100, /руб 1000, /USDT (25+5*3-15/5), /юсдт 10"
+                "Примеры: /USD 250, /дол 250, /RUB -100, /руб 1000, /USDT (25+5*3-15/5), /юсдт 10, /руб 1000 от сани"
             )
             return
 
         code = _normalize_code_alias(parts[0])
-        expr = parts[1].strip()
+
+        # было: expr = parts[1].strip()
+        expr_full = parts[1].strip()
+        expr = _strip_trailing_comment(expr_full)   # <-- убираем «от сани», комментарии и т.п.
         if not expr:
             await message.answer("Сумма не указана. Пример: /USD 250")
             return
 
         try:
-            amount = evaluate(expr)  # Decimal
+            amount = evaluate(expr)  # Decimal — считаем по очищенному выражению
         except CalcError as e:
             await message.answer(f"Ошибка в выражении суммы: {e}")
             return
@@ -241,7 +261,7 @@ class WalletsHandler:
                         client_id=client_id,
                         currency_code=code,
                         amount=delta_quant,
-                        comment=expr,
+                        comment=expr,   # сохраняем только выражение, без комментариев
                         source="command",
                         idempotency_key=idem,
                     )
@@ -252,7 +272,7 @@ class WalletsHandler:
                         client_id=client_id,
                         currency_code=code,
                         amount=delta_quant,
-                        comment=expr,
+                        comment=expr,   # сохраняем только выражение, без комментариев
                         source="command",
                         idempotency_key=idem,
                     )
