@@ -1,11 +1,13 @@
 # handlers/nonzero.py
 import html
-from aiogram import Router
+import re
+from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
 from utils.format_wallet_compact import format_wallet_compact
+from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 
 
@@ -18,16 +20,37 @@ _DISPLAY_NAMES_RU = {
     "USDW": "долб",   # «доллар белый»
 }
 
+# Алиасы валют (латиница/кириллица) → нормальный код
+_CURRENCY_ALIASES = {
+    # USD
+    "usd": "USD", "дол": "USD", "долл": "USD", "доллар": "USD", "доллары": "USD",
+    # USDT
+    "usdt": "USDT", "юсдт": "USDT",
+    # EUR
+    "eur": "EUR", "евро": "EUR",
+    # RUB
+    "rub": "RUB", "руб": "RUB", "рубль": "RUB", "рубли": "RUB", "рублей": "RUB", "руб.": "RUB",
+    # USDW
+    "usdw": "USDW", "долб": "USDW", "доллбел": "USDW", "долбел": "USDW",
+}
+
 
 def _display_code_ru(code: str) -> str:
     """Вернуть человеко-читаемое имя валюты, если есть, иначе сам код в нижнем регистре."""
     return _DISPLAY_NAMES_RU.get(code.upper(), code).lower()
 
 
+def _normalize_code_alias(raw: str) -> str:
+    """Нормализуем алиасы валют: /дол → USD, /юсдт → USDT и т.п."""
+    key = (raw or "").strip().lower()
+    return _CURRENCY_ALIASES.get(key, (raw or "").strip().upper())
+
+
 class NonZeroHandler:
     """
     /дай — показать все счета с ненулевым балансом (включая отрицательные),
-    в «компактном» формате. Команда публичная.
+           в «компактном» формате (все валюты отображаются по-русски).
+    /дай <валюта> — показать баланс по конкретной валюте (даже если он нулевой).
     """
     def __init__(self, repo: Repo, admin_chat_ids=None, admin_user_ids=None) -> None:
         self.repo = repo
@@ -35,6 +58,11 @@ class NonZeroHandler:
         self._register()
 
     async def _cmd_give(self, message: Message) -> None:
+        text = (message.text or "").strip()
+        # парсим аргумент валюты, если он передан
+        m = re.match(r"(?iu)^/дай(?:@\w+)?(?:\s+(\S+))?\s*$", text)
+        arg_code = m.group(1) if m else None
+
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id, chat_name)
@@ -44,6 +72,28 @@ class NonZeroHandler:
             await message.answer("Нет счетов. Добавьте валюту: /добавь USD 2")
             return
 
+        # Если указан код валюты — показываем только её баланс
+        if arg_code:
+            code = _normalize_code_alias(arg_code)
+            acc = next((r for r in rows if str(r["currency_code"]).upper() == code), None)
+            if not acc:
+                await message.answer(
+                    f"Счёт {code} не найден. Добавьте валюту: /добавь {code} [точность]"
+                )
+                return
+
+            prec = int(acc.get("precision", 2))
+            bal = acc.get("balance")
+            pretty = format_amount_core(bal, prec)
+            code_disp = _display_code_ru(code)
+            safe_title = html.escape(f"Средств у {chat_name}:")
+            await message.answer(
+                f"<code>{safe_title}\n\n{html.escape(pretty)} {html.escape(code_disp)}</code>",
+                parse_mode="HTML",
+            )
+            return
+
+        # Иначе — режим «все ненулевые»
         # заменим коды валют на человеко-читаемые
         renamed = []
         for r in rows:
@@ -62,3 +112,8 @@ class NonZeroHandler:
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_give, Command("дай"))
+        # поддержка формы с аргументом по regex
+        self.router.message.register(
+            self._cmd_give,
+            F.text.regexp(r"(?iu)^/дай(?:@\w+)?(?:\s+\S+)?\s*$"),
+        )
