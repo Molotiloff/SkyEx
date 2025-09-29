@@ -166,7 +166,7 @@ class CashRequestsHandler:
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
-                f"Депозит: <code>{pretty_amt} {code.lower()}</code>",
+                f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
                 f"Выдает: <code>{html.escape(tg_from)}</code>",
             ]
             if tg_to:
@@ -176,7 +176,7 @@ class CashRequestsHandler:
             lines = [
                 f"Заявка: <code>{req_id}</code>",
                 "-----",
-                f"Выдача: <code>{pretty_amt} {code.lower()}</code>",
+                f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
                 f"Выдает: <code>{html.escape(tg_from)}</code>",
             ]
             if tg_to:
