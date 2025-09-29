@@ -10,6 +10,7 @@ class Config:
     admin_chat_id: int
     admin_ids: list[int]
     request_chat_id: int | None
+    cash_chat_id: int | None
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -35,10 +36,14 @@ class Config:
         req_chat_env = os.getenv("REQUEST_CHAT_ID", "").strip()
         request_chat_id = int(req_chat_env) if req_chat_env else None
 
+        cash_chat_env = os.getenv("CASH_CHAT_ID", "").strip()
+        cash_chat_id = int(cash_chat_env) if cash_chat_env else None
+
         return cls(
             bot_token=token,
             database_url=db_url,
             admin_chat_id=admin_chat_id,
             admin_ids=admin_ids,
-            request_chat_id=request_chat_id
+            request_chat_id=request_chat_id,
+            cash_chat_id=cash_chat_id
         )

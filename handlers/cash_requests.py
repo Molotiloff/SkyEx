@@ -1,5 +1,6 @@
 # handlers/cash_requests.py
 from __future__ import annotations
+
 import html
 import random
 import re
@@ -11,12 +12,12 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_asyncpg.repo import Repo
-from keyboards.request import request_keyboard, CB_ISSUE_DONE
+from keyboards.request import CB_ISSUE_DONE
+from utils.auth import require_manager_or_admin_message
 from utils.calc import evaluate, CalcError
+from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
-from utils.auth import require_manager_or_admin_message
-from utils.format_wallet_compact import format_wallet_compact
 
 # команды → (тип, валюта)
 CMD_MAP = {
@@ -174,10 +175,10 @@ class CashRequestsHandler:
         prec = int(acc["precision"])
         q = Decimal(10) ** -prec
         amount = amount_raw.quantize(q)
+        amount = amount.quantize(Decimal("1"))
 
         req_id = random.randint(10_000_000, 99_999_999)
         pin_code = str(f"{random.randint(100, 999)}-{random.randint(100, 999)}")
-        pretty_amt = format_amount_core(amount, prec)
 
         if tg_from[0] == "+":
             temp_line = f"Выдает: <code>{html.escape(tg_from)}</code>"
@@ -188,7 +189,7 @@ class CashRequestsHandler:
         lines = [
             f"Заявка: <code>{req_id}</code>",
             "-----",
-            f"Сумма: <code>{pretty_amt} {code.lower()}</code>",
+            f"Сумма: <code>{amount} {code.lower()}</code>",
             temp_line,
         ]
         if tg_to:
@@ -296,6 +297,7 @@ class CashRequestsHandler:
         prec = int(acc["precision"]) if acc["precision"] is not None else 2
         q = Decimal(10) ** -prec
         amount = amount_raw.quantize(q)
+        amount = amount.quantize(Decimal("1"))
 
         idem = f"cash:{chat_id}:{msg.message_id}"  # на одно сообщение — одна проводка
 
@@ -332,7 +334,7 @@ class CashRequestsHandler:
                     chat_id=self.request_chat_id,
                     text=text,
                     parse_mode="HTML",
-                    reply_markup=request_keyboard(),
+                    reply_markup=None,
                 )
             except Exception:
                 pass

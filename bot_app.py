@@ -30,9 +30,11 @@ class BotApp:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.bot = Bot(token=config.bot_token)
-        admin_chat_list = [self.config.admin_chat_id] if self.config.admin_chat_id else []
-        admin_user_list = self.config.admin_ids
+        admin_chat_list = [self.config.admin_chat_id] if self.config.admin_chat_id else None
+        admin_user_list = self.config.admin_ids if self.config.admin_ids else None
         request_chat_id = self.config.request_chat_id
+        cash_chat_id = self.config.cash_chat_id
+
         self.dp = Dispatcher()
 
         self.dp.message.middleware(DedupMiddleware())
@@ -79,6 +81,7 @@ class BotApp:
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
+            request_chat_id=cash_chat_id
         )
         self.dp.include_router(self.cash_requests.router)
         self.admin_request_handler = AdminRequestHandler(
