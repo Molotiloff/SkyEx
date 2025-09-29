@@ -15,7 +15,6 @@ from db_asyncpg.repo import Repo
 from keyboards.request import CB_ISSUE_DONE
 from utils.auth import require_manager_or_admin_message
 from utils.calc import evaluate, CalcError
-from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 
@@ -339,15 +338,19 @@ class CashRequestsHandler:
             except Exception:
                 pass
 
-        # --- 5) Показать актуальные балансы клиента
-        rows = await self.repo.snapshot_wallet(client_id)
-        compact = format_wallet_compact(rows, only_nonzero=True)
+            # --- 5) Показать баланс только по изменившейся валюте ---
+        accounts2 = await self.repo.snapshot_wallet(client_id)
+        acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)
 
-        if compact == "Пусто":
-            await cq.message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
-        else:
-            safe_title = html.escape(f"Средств у {chat_name}:")
-            safe_rows = html.escape(compact)
-            await cq.message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+        cur_bal = Decimal(str(acc2["balance"])) if acc2 else Decimal("0")
+        # берём точность из счёта (на случай если она отличается от acc.prec выше)
+        prec2 = int(acc2["precision"]) if acc2 and acc2.get("precision") is not None else prec
+        pretty_bal = format_amount_core(cur_bal, prec2)
+
+        # компактное сообщение только по одной валюте
+        await cq.message.answer(
+            f"Баланс по {code.lower()}: <code>{pretty_bal} {code.lower()}</code>",
+            parse_mode="HTML",
+        )
 
         await cq.answer("Отмечено как выдано")
