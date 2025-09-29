@@ -5,7 +5,7 @@ import html
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Iterable, Optional, Tuple
+from typing import Optional, Tuple
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -21,7 +21,6 @@ from utils.auth import (
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.requests import post_request_message
-from utils.req_index import req_index
 from utils.format_wallet_compact import format_wallet_compact
 
 
@@ -33,10 +32,9 @@ def _fmt_rate(d: Decimal) -> str:
 # Ищем номер заявки в тексте сообщения бота
 _RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.IGNORECASE)
 
-# Для парсинга сумм из текста заявки
+# Для парсинга сумм из текста заявки (нужно для отмены)
 _RE_GET = re.compile(r"^\s*Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
 _RE_GIVE = re.compile(r"^\s*Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
-_RE_CREATED_BY = re.compile(r"^\s*Создал:\s*(?:<b>)?(.+?)(?:</b>)?\s*$", re.I | re.M)
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 
 
@@ -73,13 +71,13 @@ class AcceptShortHandler(AbstractExchangeHandler):
     редактируем существующую заявку (только менеджеры/админы).
     """
     RECV_MAP = {"пд": "USD", "пе": "EUR", "пт": "USDT", "пр": "RUB", "пб": "USDW"}
-    PAY_MAP = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB", "об": "USDW"}
+    PAY_MAP  = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB", "об": "USDW"}
 
     def __init__(
         self,
         repo: Repo,
-        admin_chat_ids: Iterable[int] | None = None,
-        admin_user_ids: Iterable[int] | None = None,
+        admin_chat_ids: set[int] | None = None,
+        admin_user_ids: set[int] | None = None,
         request_chat_id: int | None = None,
     ) -> None:
         super().__init__(repo, request_chat_id=request_chat_id)
@@ -138,32 +136,9 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await message.answer(f"Ошибка в выражениях: {e}")
             return
 
-        # Проверка: редактирование?
-        reply_msg = getattr(message, "reply_to_message", None)
-        is_edit = False
-        edit_req_id: str | None = None
-        target_bot_msg_id: int | None = None
-
-        if reply_msg and (reply_msg.text or ""):
-            if reply_msg.from_user and reply_msg.from_user.id == message.bot.id:
-                # Ответ на сообщение БОТА — достаём req_id
-                mid = _RE_REQ_ID.search(reply_msg.text)
-                if mid:
-                    is_edit = True
-                    edit_req_id = mid.group(1)
-                    target_bot_msg_id = reply_msg.message_id
-            else:
-                # Ответ на исходную команду пользователя — ищем связку в индексе
-                link = req_index.lookup(message.chat.id, reply_msg.message_id)
-                if link is not None:
-                    is_edit = True
-                    edit_req_id = link.req_id
-                    target_bot_msg_id = link.bot_msg_id
-
         # Точности счётов (для форматирования), без изменения балансов
         chat_id = message.chat.id
-        chat_name = get_chat_name(message)
-        client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
+        client_id = await self.repo.ensure_client(chat_id=chat_id, name=(message.chat.full_name or ""))
         accounts = await self.repo.snapshot_wallet(client_id)
 
         def _find_acc(code: str):
@@ -203,107 +178,21 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await message.answer("Ошибка расчёта курса.")
             return
 
-        pretty_recv = format_amount_core(recv_amount, recv_prec)
-        pretty_pay = format_amount_core(pay_amount,  pay_prec)
-
-        # === РЕЖИМ РЕДАКТИРОВАНИЯ ===
-        if is_edit and edit_req_id and target_bot_msg_id:
-            # Собираем новый текст для клиента (без «Клиент» и без «Формула»)
-
-            # --- NEW: определяем, кто создал заявку ---
-            creator_name: str | None = None
-            if reply_msg and reply_msg.text:
-                m_created = _RE_CREATED_BY.search(reply_msg.text)
-                if m_created:
-                    creator_name = m_created.group(1).strip()
-
-            if not creator_name:
-                u = getattr(message, "from_user", None)
-                if u:
-                    creator_name = (
-                            getattr(u, "full_name", None)
-                            or (f"@{u.username}" if getattr(u, "username", None) else None)
-                            or f"id:{u.id}"
-                    )
-            creator_name = creator_name or "unknown"
-            # --- /NEW ---
-
-            parts_client = [
-                f"Заявка: <code>{edit_req_id}</code>",
-                "-----",
-                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
-                f"Курс: <code>{rate_str}</code>",
-                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
-            ]
-            if user_note:
-                parts_client += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
-
-            # --- NEW: подпись создателя всегда внизу заявки ---
-            parts_client += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
-
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            parts_client += ["----", f"Изменение: <code>{ts}</code>"]
-            new_client_text = "\n".join(parts_client)
-
-            # Пересчёт балансов (если есть текст старой заявки бота)
-            did_recalc = False
-            try:
-                if reply_msg and reply_msg.from_user and reply_msg.from_user.id == message.bot.id:
-                    did_recalc = await self.apply_edit_delta(
-                        client_id=client_id,
-                        old_request_text=reply_msg.text or "",
-                        recv_code_new=recv_code,
-                        pay_code_new=pay_code,
-                        recv_amount_new=recv_amount,
-                        pay_amount_new=pay_amount,
-                        recv_prec=recv_prec,
-                        pay_prec=pay_prec,
-                        chat_id=chat_id,
-                        target_bot_msg_id=target_bot_msg_id,
-                        cmd_msg_id=message.message_id,
-                        recv_is_deposit=False,  # здесь «принимаем» = списываем
-                        pay_is_withdraw=False,  # «отдаём» = зачисляем
-                    )
-            except Exception as e:
-                await message.answer(f"Не удалось пересчитать балансы: {e}")
-
-            # Обновляем текст заявки — И СНОВА СТАВИМ КНОПКУ ОТМЕНЫ
-            try:
-                await message.bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=target_bot_msg_id,
-                    text=new_client_text,
-                    parse_mode="HTML",
-                    reply_markup=_cancel_kb(edit_req_id),
-                )
-            except Exception as e:
-                await message.answer(f"Не удалось изменить заявку: {e}")
-                return
-
-            # В заявочный чат — предупреждение
-            if self.request_chat_id:
-                alert_text = f"⚠️ Внимание: заявка <code>{edit_req_id}</code> изменена."
-                try:
-                    await post_request_message(
-                        bot=message.bot, request_chat_id=self.request_chat_id,
-                        text=alert_text, reply_markup=None,
-                    )
-                except Exception:
-                    pass
-
-            # Показываем актуальные балансы (как /дай)
-            rows = await self.repo.snapshot_wallet(client_id)
-            compact = format_wallet_compact(rows, only_nonzero=True)
-            if compact == "Пусто":
-                await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
-            else:
-                safe_title = html.escape(f"Средств у {chat_name}:")
-                safe_rows = html.escape(compact)
-                await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
-
-            if not did_recalc:
-                await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, отвечайте "
-                                     "на сообщение БОТА с заявкой.")
+        # === ПОПЫТКА РЕДАКТИРОВАНИЯ (вынесено в exchange_base) ===
+        handled = await self.try_edit_request(
+            message=message,
+            recv_code=recv_code,
+            pay_code=pay_code,
+            recv_amount=recv_amount,
+            pay_amount=pay_amount,
+            recv_prec=recv_prec,
+            pay_prec=pay_prec,
+            rate_str=rate_str,
+            user_note=(user_note or None),
+            recv_is_deposit=False,   # принимаем — списываем у клиента
+            pay_is_withdraw=False,   # отдаём — зачисляем клиенту
+        )
+        if handled:
             return
 
         # === СОЗДАНИЕ НОВОЙ ЗАЯВКИ ===
@@ -353,7 +242,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             return
 
         recv_amt_raw, recv_code = p_get         # слева «Получаем» (в этой команде это была списанная у клиента сумма)
-        pay_amt_raw,  pay_code = p_give        # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
+        pay_amt_raw,  pay_code = p_give         # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
 
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
@@ -426,20 +315,23 @@ class AcceptShortHandler(AbstractExchangeHandler):
             except Exception:
                 pass
 
-        # показать актуальные балансы И сообщить об отмене — одним сообщением в клиентский чат
-        rows = await self.repo.snapshot_wallet(client_id)
-        compact = format_wallet_compact(rows, only_nonzero=True)
-        if compact == "Пусто":
-            balances_block = "Все счета нулевые. Посмотреть всё: /кошелек"
+        # показать лаконичное подтверждение и текущий баланс по КОНКРЕТНОЙ валюте «Отдаём»
+        accounts2 = await self.repo.snapshot_wallet(client_id)
+        acc_cur = next((r for r in accounts2 if str(r["currency_code"]).upper() == pay_code.upper()), None)
+        if acc_cur:
+            cur_bal = Decimal(str(acc_cur["balance"]))
+            cur_prec = int(acc_cur["precision"])
+            pretty_bal = format_amount_core(cur_bal, cur_prec)
+            await cq.message.answer(
+                f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n"
+                f"Баланс: {pretty_bal} {pay_code.lower()}",
+                parse_mode="HTML",
+            )
         else:
-            safe_title = html.escape(f"Средств у {chat_name}:")
-            safe_rows = html.escape(compact)
-            balances_block = f"<code>{safe_title}\n\n{safe_rows}</code>"
-
-        await cq.message.answer(
-            f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n{balances_block}",
-            parse_mode="HTML",
-        )
+            await cq.message.answer(
+                f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.",
+                parse_mode="HTML",
+            )
 
         await cq.answer("Заявка отменена")
 
@@ -453,5 +345,5 @@ class AcceptShortHandler(AbstractExchangeHandler):
             self._cmd_accept_short,
             F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб)(?:@\w+)?\b"),
         )
-        # обработчик коллбэка отмены
+        # обработчик коллбэка отмены — ВЕРНУЛИ
         self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))
