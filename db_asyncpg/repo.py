@@ -1,11 +1,38 @@
-# app/db_asyncpg/repo.py
 from __future__ import annotations
 
 from decimal import Decimal
 from typing import Any
+from datetime import datetime, date, timezone
 
 from db_asyncpg.pool import get_pool
 from db_asyncpg.utils import to_upper, quantize_amount
+
+
+def _normalize_dt(v: datetime | date | str | None) -> datetime | None:
+    """
+    Принимает datetime/date/ISO-строку/None.
+    Возвращает timezone-aware datetime (UTC) или None.
+    """
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        dt = v
+    elif isinstance(v, date):
+        dt = datetime(v.year, v.month, v.day)
+    elif isinstance(v, str):
+        # поддерживаем ISO 8601
+        try:
+            dt = datetime.fromisoformat(v)
+        except ValueError:
+            raise ValueError(f"Invalid datetime string: {v!r}")
+    else:
+        raise TypeError("Unsupported datetime type")
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt
 
 
 class Repo:
@@ -16,12 +43,6 @@ class Repo:
 
     # ---------- Клиенты ----------
     async def ensure_client(self, chat_id: int, name: str, city: str | None = None) -> int:
-        """
-        Вернёт client_id.
-        - Создаст клиента, если его нет.
-        - Если клиент есть, но is_active=FALSE — переведёт в TRUE (реактивация).
-        - При изменении name/city — обновит поля.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
@@ -30,10 +51,8 @@ class Repo:
                     chat_id,
                 )
                 if row:
-                    # нужно ли обновить name/city?
                     need_update_nc = (name and row["name"] != name) or (city is not None and row["city"] != city)
                     if not row["is_active"]:
-                        # реактивация + опциональное обновление name/city
                         await con.execute(
                             """
                             UPDATE clients
@@ -63,11 +82,6 @@ class Repo:
                 return rec["id"]
 
     async def remove_client(self, chat_id: int) -> bool:
-        """
-        МЯГКОЕ удаление клиента: помечаем is_active = FALSE (без каскадного удаления).
-        Повторное обращение клиента «реанимирует» его через ensure_client().
-        Возвращает True, если состояние было изменено (клиент активный -> деактивирован).
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
@@ -84,9 +98,6 @@ class Repo:
                 return res.endswith(" 1")
 
     async def list_clients(self) -> list[dict]:
-        """
-        Список АКТИВНЫХ клиентов (чатов) с количеством счетов.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             rows = await con.fetch(
@@ -109,9 +120,6 @@ class Repo:
             return [dict(r) for r in rows]
 
     async def add_currency(self, client_id: int, currency_code: str, precision: int) -> int:
-        """
-        Активирует/создаёт счёт клиента в валюте. Возвращает account_id.
-        """
         code = to_upper(currency_code)
         pool = await get_pool()
         async with pool.acquire() as con:
@@ -129,10 +137,6 @@ class Repo:
                 return rec["id"]
 
     async def remove_currency(self, client_id: int, currency_code: str) -> bool:
-        """
-        Мягкое удаление счёта (is_active=false).
-        Теперь разрешено даже при ненулевом балансе.
-        """
         code = to_upper(currency_code)
         pool = await get_pool()
         async with pool.acquire() as con:
@@ -148,13 +152,9 @@ class Repo:
                     """,
                     client_id, code,
                 )
-                # asyncpg возвращает строки вида 'UPDATE 0' / 'UPDATE 1'
                 return res.endswith(" 1")
 
     async def snapshot_wallet(self, client_id: int) -> list[dict[str, Any]]:
-        """
-        Список активных счетов клиента с балансами.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             rows = await con.fetch(
@@ -171,27 +171,22 @@ class Repo:
     # ---------- Транзакции ----------
 
     async def _apply_delta(
-            self,
-            *,
-            client_id: int,
-            currency_code: str,
-            amount: Decimal | str | int | float,  # знаковая величина (+ пополнение, − списание)
-            group_id: int | None = None,
-            actor_id: int | None = None,
-            comment: str | None = None,
-            source: str | None = None,
-            txn_at: str | None = None,  # ISO8601, None → NOW()
-            idempotency_key: str | None = None,
+        self,
+        *,
+        client_id: int,
+        currency_code: str,
+        amount: Decimal | str | int | float,
+        group_id: int | None = None,
+        actor_id: int | None = None,
+        comment: str | None = None,
+        source: str | None = None,
+        txn_at: str | datetime | None = None,
+        idempotency_key: str | None = None,
     ) -> int:
-        """
-        Базовый метод изменения баланса счёта с записью транзакции.
-        Возвращает transaction_id. Идемпотентность опциональна (по client_id + idempotency_key).
-        """
         code = to_upper(currency_code)
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
-                # 1) Идемпотентность (если ключ передан)
                 if idempotency_key:
                     exist = await con.fetchrow(
                         "SELECT id FROM transactions WHERE client_id=$1 AND idempotency_key=$2",
@@ -200,7 +195,6 @@ class Repo:
                     if exist:
                         return exist["id"]
 
-                # 2) Блокируем счёт
                 acc = await con.fetchrow(
                     """
                     SELECT id, precision, balance
@@ -217,13 +211,14 @@ class Repo:
                 qamount = quantize_amount(amount, prec)
                 new_balance = quantize_amount(Decimal(acc["balance"]) + qamount, prec)
 
-                # 3) Обновляем баланс
                 await con.execute(
                     "UPDATE client_accounts SET balance=$1 WHERE id=$2",
                     new_balance, acc["id"],
                 )
 
-                # 4) Записываем транзакцию
+                # нормализуем txn_at (может быть None/str/datetime)
+                txn_at_norm = _normalize_dt(txn_at) if txn_at is not None else None
+
                 rec = await con.fetchrow(
                     """
                     INSERT INTO transactions
@@ -232,39 +227,30 @@ class Repo:
                     VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10)
                     RETURNING id
                     """,
-                    client_id, acc["id"], txn_at, qamount, new_balance,
+                    client_id, acc["id"], txn_at_norm, qamount, new_balance,
                     group_id, actor_id, comment, source, idempotency_key,
                 )
                 return rec["id"]
 
     async def deposit(self, **kwargs) -> int:
-        """
-        Пополнение (amount > 0). amount может быть str/int/float/Decimal.
-        """
         return await self._apply_delta(**kwargs)
 
     async def withdraw(self, **kwargs) -> int:
-        """
-        Списание (amount > 0 на входе — будет инвертирован до отрицательного).
-        """
         if "amount" in kwargs:
             kwargs = dict(kwargs)
             kwargs["amount"] = -Decimal(str(kwargs["amount"]))
         return await self._apply_delta(**kwargs)
 
     async def history(
-            self,
-            account_id: int,
-            *,
-            limit: int = 50,
-            since: str | None = None,  # ISO8601 (включительно)
-            until: str | None = None,  # ISO8601 (исключительно)
-            cursor_txn_at: str | None = None,
-            cursor_id: int | None = None,
+        self,
+        account_id: int,
+        *,
+        limit: int = 50,
+        since: str | datetime | None = None,
+        until: str | datetime | None = None,
+        cursor_txn_at: str | None = None,
+        cursor_id: int | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Выписка по счёту. Поддерживает период и кейсет-пагинацию по (txn_at, id).
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             where = ["account_id = $1"]
@@ -272,10 +258,10 @@ class Repo:
 
             if since is not None:
                 where.append("txn_at >= $%d" % (len(params) + 1))
-                params.append(since)
+                params.append(_normalize_dt(since))
             if until is not None:
                 where.append("txn_at <  $%d" % (len(params) + 1))
-                params.append(until)
+                params.append(_normalize_dt(until))
             if cursor_txn_at is not None and cursor_id is not None:
                 where.append("(txn_at, id) < ($%d::timestamptz, $%d)" % (len(params) + 1, len(params) + 2))
                 params.extend([cursor_txn_at, cursor_id])
@@ -295,10 +281,6 @@ class Repo:
     # ---------- Агрегаты/выборки ----------
 
     async def balances_by_client(self) -> list[dict[str, Any]]:
-        """
-        Сколько денег у клиентов по валютам (моментальный снимок из accounts),
-        включая precision счёта для корректного форматирования.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             rows = await con.fetch(
@@ -319,10 +301,6 @@ class Repo:
             return [dict(r) for r in rows]
 
     async def set_client_city_by_chat_id(self, chat_id: int, city: str) -> dict | None:
-        """
-        Установить/обновить city для клиента по chat_id.
-        Возвращает словарь с полями клиента или None, если не найден.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             row = await con.fetchrow(
@@ -369,77 +347,57 @@ class Repo:
             return row is not None
 
     async def export_transactions(
-            self,
-            *,
-            client_id: int | None = None,
-            since: str | None = None,
-            until: str | None = None,
+        self,
+        *,
+        client_id: int | None = None,
+        since: datetime | date | str | None = None,
+        until: datetime | date | str | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Плоский набор строк для экспорта в Google-таблицу/документ.
+        Плоский набор строк для экспорта/выписки.
+        Поддерживает since/until как datetime/date/ISO-строку/None.
         """
+        since_dt = _normalize_dt(since) if since is not None else None
+        until_dt = _normalize_dt(until) if until is not None else None
+
         pool = await get_pool()
         async with pool.acquire() as con:
             where = ["TRUE"]
             params: list[Any] = []
             if client_id is not None:
-                where.append("client_id = $%d" % (len(params) + 1))
+                where.append("t.client_id = $%d" % (len(params) + 1))
                 params.append(client_id)
-            if since is not None:
-                where.append("txn_at >= $%d" % (len(params) + 1))
-                params.append(since)
-            if until is not None:
-                where.append("txn_at <  $%d" % (len(params) + 1))
-                params.append(until)
+            if since_dt is not None:
+                where.append("t.txn_at >= $%d" % (len(params) + 1))
+                params.append(since_dt)
+            if until_dt is not None:
+                where.append("t.txn_at <  $%d" % (len(params) + 1))
+                params.append(until_dt)
 
             sql = f"""
-                SELECT t.id, t.client_id, c.name AS client_name, c.chat_id,
-                       t.account_id, a.currency_code,
-                       t.txn_at, t.amount, t.balance_after,
-                       t.group_id, g.name AS group_name,
-                       t.actor_id, ac.display_name AS actor_name,
-                       t.comment, t.source
+                SELECT
+                    t.id,
+                    t.client_id,
+                    c.name      AS client_name,
+                    c.chat_id,
+                    t.account_id,
+                    a.currency_code,
+                    t.txn_at,
+                    t.amount,
+                    t.balance_after,
+                    t.group_id,
+                    g.name      AS group_name,
+                    t.actor_id,
+                    ac.display_name AS actor_name,
+                    t.comment,
+                    t.source
                 FROM transactions t
-                JOIN clients c ON c.id = t.client_id
-                JOIN client_accounts a ON a.id = t.account_id
-                LEFT JOIN txn_groups g ON g.id = t.group_id
-                LEFT JOIN actors ac    ON ac.id = t.actor_id
+                JOIN clients         c  ON c.id = t.client_id
+                JOIN client_accounts a  ON a.id = t.account_id
+                LEFT JOIN txn_groups g  ON g.id = t.group_id
+                LEFT JOIN actors     ac ON ac.id = t.actor_id
                 WHERE {' AND '.join(where)}
                 ORDER BY t.txn_at, t.id
             """
             rows = await con.fetch(sql, *params)
             return [dict(r) for r in rows]
-
-    async def _ensure_settings_table(self, con) -> None:
-        await con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS app_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-
-    async def get_setting(self, key: str) -> str | None:
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            await self._ensure_settings_table(con)
-            row = await con.fetchrow("SELECT value FROM app_settings WHERE key=$1", key)
-            return None if row is None else str(row["value"])
-
-    async def set_setting(self, key: str, value: str) -> None:
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await self._ensure_settings_table(con)
-                await con.execute(
-                    """
-                    INSERT INTO app_settings(key, value)
-                    VALUES ($1, $2)
-                    ON CONFLICT (key) DO UPDATE SET
-                        value=EXCLUDED.value,
-                        updated_at=now()
-                    """,
-                    key, value,
-                )

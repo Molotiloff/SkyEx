@@ -30,25 +30,32 @@ class BotApp:
     def __init__(self, config: Config) -> None:
         self.config = config
         self.bot = Bot(token=config.bot_token)
+
         admin_chat_list = [self.config.admin_chat_id] if self.config.admin_chat_id else None
         admin_user_list = self.config.admin_ids if self.config.admin_ids else None
         request_chat_id = self.config.request_chat_id
         cash_chat_id = self.config.cash_chat_id
 
+        # Чаты, где нужно игнорировать команды вида "/USD 100" (например, чат заявок/выдач)
+        ignore_chat_ids = {cid for cid in (request_chat_id, cash_chat_id) if cid}
+
         self.dp = Dispatcher()
 
+        # анти-дедуп
         self.dp.message.middleware(DedupMiddleware())
         self.dp.callback_query.middleware(DedupMiddleware())
 
         # репозиторий Postgres
         self.repo = Repo()
 
+        # менеджеры
         self.managers_handler = ManagersHandler(
             self.repo,
             self.config.admin_chat_id,
         )
         self.dp.include_router(self.managers_handler.router)
 
+        # USDT-кошелёк
         self.usdt_wallet_handler = UsdtWalletHandler(
             self.repo,
             admin_chat_ids={self.config.admin_chat_id} if getattr(self.config, "admin_chat_id", None) else set(),
@@ -58,17 +65,19 @@ class BotApp:
         # базовые
         self.start_handler = StartHandler(self.repo)
         self.calc_handler = CalcHandler()
-
         self.pass_card_handler = PassCardHandler()
         self.dp.include_router(self.pass_card_handler.router)
         self.dp.include_router(debug_router)
 
         # остальные — с repo
         self.nonzero_handler = NonZeroHandler(self.repo)
+
+        # WalletsHandler теперь игнорирует валютные команды в ignore_chat_ids
         self.wallets_handler = WalletsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
-            admin_user_ids=admin_user_list
+            admin_user_ids=admin_user_list,
+            ignore_chat_ids=ignore_chat_ids,
         )
 
         self.accept_short = AcceptShortHandler(
@@ -77,17 +86,19 @@ class BotApp:
             admin_user_ids=admin_user_list,
             request_chat_id=request_chat_id,
         )
+
         self.cash_requests = CashRequestsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
-            request_chat_id=cash_chat_id
+            request_chat_id=cash_chat_id,
         )
         self.dp.include_router(self.cash_requests.router)
+
         self.admin_request_handler = AdminRequestHandler(
             self.repo,
             admin_chat_id=self.config.admin_chat_id,
-            admin_user_ids=self.config.admin_ids,  # опционально, сейчас не используется
+            admin_user_ids=self.config.admin_ids,  # опционально
         )
         self.dp.include_router(self.admin_request_handler.router)
 
@@ -107,9 +118,11 @@ class BotApp:
         self.dp.include_router(self.nonzero_handler.router)
         self.dp.include_router(self.wallets_handler.router)
 
+        # роутер чата заявок (если задан)
         if request_chat_id:
             self.dp.include_router(get_request_router(allowed_chat_ids=[request_chat_id]))
 
+        # роутер «Выдано/Issue»
         self.dp.include_router(get_issue_router(
             repo=self.repo,
             admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],

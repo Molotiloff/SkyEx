@@ -3,12 +3,14 @@ import html
 import re
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 
 from db_asyncpg.repo import Repo
 from utils.format_wallet_compact import format_wallet_compact
-from utils.formatting import format_amount_core
 from utils.info import get_chat_name
+
+# выписки (общий модуль)
+from utils.statements import statements_kb, handle_stmt_callback
 
 
 # Человеческие названия валют для отображения
@@ -52,6 +54,7 @@ class NonZeroHandler:
            в «компактном» формате (все валюты отображаются по-русски).
     /дай <валюта> — показать баланс по конкретной валюте (даже если он нулевой),
            с тем же компактным выравниванием.
+    Под ответом — кнопки «Выписка за месяц» и «Выписка за всё время».
     """
     def __init__(self, repo: Repo, admin_chat_ids=None, admin_user_ids=None) -> None:
         self.repo = repo
@@ -70,7 +73,10 @@ class NonZeroHandler:
 
         rows = await self.repo.snapshot_wallet(client_id)
         if not rows:
-            await message.answer("Нет счетов. Добавьте валюту: /добавь USD 2")
+            await message.answer(
+                "Нет счетов. Добавьте валюту: /добавь USD 2",
+                reply_markup=statements_kb(),  # всё равно даём быстрый доступ к выпискам (на случай истории)
+            )
             return
 
         # Если указан код валюты — показываем только её баланс (через compact для выравнивания)
@@ -79,7 +85,8 @@ class NonZeroHandler:
             acc = next((r for r in rows if str(r["currency_code"]).upper() == code), None)
             if not acc:
                 await message.answer(
-                    f"Счёт {code} не найден. Добавьте валюту: /добавь {code} [точность]"
+                    f"Счёт {code} не найден. Добавьте валюту: /добавь {code} [точность]",
+                    reply_markup=statements_kb(),
                 )
                 return
 
@@ -95,7 +102,11 @@ class NonZeroHandler:
 
             safe_title = html.escape(f"Средств у {chat_name}:")
             safe_rows = html.escape(compact_one)
-            await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+            await message.answer(
+                f"<code>{safe_title}\n\n{safe_rows}</code>",
+                parse_mode="HTML",
+                reply_markup=statements_kb(),
+            )
             return
 
         # Иначе — режим «все ненулевые»
@@ -108,12 +119,23 @@ class NonZeroHandler:
 
         compact = format_wallet_compact(renamed, only_nonzero=True)
         if compact == "Пусто":
-            await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+            await message.answer(
+                "Все счета нулевые. Посмотреть всё: /кошелек",
+                reply_markup=statements_kb(),
+            )
             return
 
         safe_title = html.escape(f"Средств у {chat_name}:")
         safe_rows = html.escape(compact)
-        await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+        await message.answer(
+            f"<code>{safe_title}\n\n{safe_rows}</code>",
+            parse_mode="HTML",
+            reply_markup=statements_kb(),
+        )
+
+    async def _cb_statement(self, cq: CallbackQuery) -> None:
+        # делегируем общий обработчик выписок
+        await handle_stmt_callback(cq, self.repo)
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_give, Command("дай"))
@@ -122,3 +144,5 @@ class NonZeroHandler:
             self._cmd_give,
             F.text.regexp(r"(?iu)^/дай(?:@\w+)?(?:\s+\S+)?\s*$"),
         )
+        # обработка коллбэков выписок
+        self.router.callback_query.register(self._cb_statement, F.data.in_({"stmt:month", "stmt:all"}))
