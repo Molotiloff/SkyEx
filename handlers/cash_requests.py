@@ -89,9 +89,10 @@ class CashRequestsHandler:
       /депр|депт|депд|депе|депб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
       /выдр|выдт|выдд|выде|выдб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
 
-    В чат клиента: заявка + кнопка «Выдано» (жмут менеджеры).
-    В заявочный чат: заявка отправляется ТОЛЬКО после нажатия «Выдано».
-    После нажатия «Выдано» — проводим операцию по кошельку и показываем актуальные балансы клиента.
+    Теперь:
+      • В чат клиента: заявка + кнопка «Выдано».
+      • В заявочный чат: заявка отправляется СРАЗУ после формирования (без ожидания «Выдано»).
+      • На «Выдано» — проводим операцию по кошельку и показываем актуальный баланс по валюте.
     """
 
     def __init__(
@@ -174,6 +175,7 @@ class CashRequestsHandler:
         prec = int(acc["precision"])
         q = Decimal(10) ** -prec
         amount = amount_raw.quantize(q)
+        # проектное требование: округлять сумму до целого
         amount = amount.quantize(Decimal("1"))
 
         req_id = random.randint(10_000_000, 99_999_999)
@@ -197,7 +199,7 @@ class CashRequestsHandler:
             else:
                 lines.append(f"Принимает: {html.escape(tg_to)}")
 
-        # «Код: …» теперь одинаков для депозита/выдачи — тип шлём в callback_data
+        # «Код: …» одинаков для депозита/выдачи — тип шлём в callback_data
         lines.append(f"Код: <tg-spoiler>{pin_code}</tg-spoiler>")
 
         if comment:
@@ -205,12 +207,27 @@ class CashRequestsHandler:
 
         text = "\n".join(lines)
 
-        # Отправляем в чат клиента — с кнопкой «Выдано», тип в callback_data
+        # 1) Отправляем в чат клиента — с кнопкой «Выдано», тип в callback_data
         await message.answer(
             text,
             parse_mode="HTML",
             reply_markup=_issue_keyboard_with_kind(kind=kind, req_id=req_id),
         )
+
+        # 2) СРАЗУ отправляем копию в заявочный чат (без кнопки), если указан
+        if self.request_chat_id:
+            try:
+                # добавим строку с типом для ясности оператору
+                kind_ru = "Деп" if kind == "dep" else "Выд"
+                text_req = f"{text}\nТип: <b>{kind_ru}</b>"
+                await message.bot.send_message(
+                    chat_id=self.request_chat_id,
+                    text=text_req,
+                    parse_mode="HTML",
+                )
+            except Exception:
+                # не роняем основной поток
+                pass
 
     async def _cb_issue_done(self, cq: CallbackQuery) -> None:
         """
@@ -219,8 +236,8 @@ class CashRequestsHandler:
           - парсим сумму/валюту из «Сумма: ...»
           - проводим операцию по кошельку (идемпотентно)
           - убираем клавиатуру
-          - отправляем заявку в заявочный чат (если настроен)
-          - показываем актуальные балансы клиента
+          - показываем актуальный баланс клиента по изменившейся валюте
+          (в заявочный чат повторно НЕ отправляем — он уже получил копию при создании заявки)
         """
         msg = cq.message
         if not msg:
@@ -247,9 +264,7 @@ class CashRequestsHandler:
         # --- 1) Тип операции из callback_data ---
         op_kind: Optional[str] = None
         try:
-            # ожидаем формат: "req:issue_done:<kind>:<req_id>"
             parts = (cq.data or "").split(":")
-            # сравниваем префикс из двух частей с константой CB_ISSUE_DONE ("req:issue_done")
             if len(parts) >= 4 and ":".join(parts[:2]) == CB_ISSUE_DONE:
                 maybe_kind = parts[2].lower()
                 if maybe_kind in ("dep", "wd"):
@@ -257,7 +272,7 @@ class CashRequestsHandler:
         except Exception:
             op_kind = None
 
-        # --- 1a) Legacy: если тип не удалось извлечь — ищем в тексте старые маркеры
+        # --- Legacy маркеры в тексте (на случай старых сообщений) ---
         if not op_kind:
             if _RE_KIND_DEP_LEGACY.search(text):
                 op_kind = "dep"
@@ -268,7 +283,7 @@ class CashRequestsHandler:
             await cq.answer("Не удалось распознать тип заявки.", show_alert=True)
             return
 
-        # --- 2) Сумма/валюта из строки «Сумма: ...»
+        # --- 2) Сумма/валюта ---
         m_amt = _RE_LINE_AMOUNT.search(text)
         if not m_amt:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
@@ -279,10 +294,10 @@ class CashRequestsHandler:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
             return
 
-        amount_raw, code = parsed  # Decimal, UPPER
+        amount_raw, code = parsed
         code = code.upper()
 
-        # --- 3) Проводим операцию по счёту клиента (идемпотентность по сообщению заявки)
+        # --- 3) Проводим операцию по счёту клиента ---
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
@@ -302,7 +317,6 @@ class CashRequestsHandler:
 
         try:
             if op_kind == "dep":
-                # «внесли наличные» → зачисляем клиенту
                 await self.repo.deposit(
                     client_id=client_id,
                     currency_code=code,
@@ -312,7 +326,6 @@ class CashRequestsHandler:
                     idempotency_key=idem,
                 )
             else:
-                # «выдали наличные» → списываем
                 await self.repo.withdraw(
                     client_id=client_id,
                     currency_code=code,
@@ -326,30 +339,16 @@ class CashRequestsHandler:
             await cq.answer()
             return
 
-        # --- 4) Отправляем в заявочный чат (если есть)
-        if self.request_chat_id:
-            try:
-                await cq.bot.send_message(
-                    chat_id=self.request_chat_id,
-                    text=text,
-                    parse_mode="HTML",
-                    reply_markup=None,
-                )
-            except Exception:
-                pass
-
-            # --- 5) Показать баланс только по изменившейся валюте ---
+        # --- 4) Показать баланс только по изменившейся валюте ---
         accounts2 = await self.repo.snapshot_wallet(client_id)
         acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)
 
         cur_bal = Decimal(str(acc2["balance"])) if acc2 else Decimal("0")
-        # берём точность из счёта (на случай если она отличается от acc.prec выше)
         prec2 = int(acc2["precision"]) if acc2 and acc2.get("precision") is not None else prec
         pretty_bal = format_amount_core(cur_bal, prec2)
 
-        # компактное сообщение только по одной валюте
         await cq.message.answer(
-            f"Баланс по {code.lower()}: <code>{pretty_bal} {code.lower()}</code>",
+            f"Запомнил.\nБаланс: <code>{pretty_bal} {code.lower()}</code>",
             parse_mode="HTML",
         )
 
