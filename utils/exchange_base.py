@@ -293,8 +293,6 @@ class AbstractExchangeHandler(ABC):
         ]
         if user_note:
             parts_client += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
-        # подпись создателя (сохраняем/ставим)
-        parts_client += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
         parts_client += ["----", f"Изменение: <code>{ts}</code>"]
         new_client_text = "\n".join(parts_client)
@@ -476,9 +474,6 @@ class AbstractExchangeHandler(ABC):
             ]
             if note:
                 base_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
-            # подпись создателя внизу
-            base_lines += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
-
             # Клиенту — без строки «Клиент» и без формулы
             client_text = "\n".join(base_lines)
 
