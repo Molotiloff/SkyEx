@@ -1,4 +1,3 @@
-# bot_app.py
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
@@ -36,7 +35,8 @@ class BotApp:
         request_chat_id = self.config.request_chat_id
         cash_chat_id = self.config.cash_chat_id
 
-        # Чаты, где нужно игнорировать команды вида "/USD 100" (например, чат заявок/выдач)
+        # Чаты, где нужно игнорировать валютные команды типа "/USD 100"
+        # (например, чат заявок/выдач и кассовый чат)
         ignore_chat_ids = {cid for cid in (request_chat_id, cash_chat_id) if cid}
 
         self.dp = Dispatcher()
@@ -55,7 +55,7 @@ class BotApp:
         )
         self.dp.include_router(self.managers_handler.router)
 
-        # USDT-кошелёк
+        # USDT-кошелёк: тут регистрируется /кош
         self.usdt_wallet_handler = UsdtWalletHandler(
             self.repo,
             admin_chat_ids={self.config.admin_chat_id} if getattr(self.config, "admin_chat_id", None) else set(),
@@ -72,7 +72,8 @@ class BotApp:
         # остальные — с repo
         self.nonzero_handler = NonZeroHandler(self.repo)
 
-        # WalletsHandler теперь игнорирует валютные команды в ignore_chat_ids
+        # WalletsHandler: тут регистрируется /кошелек
+        # Передаём ignore_chat_ids, чтобы там игнорились команды вида "/USD ..."
         self.wallets_handler = WalletsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
@@ -85,6 +86,7 @@ class BotApp:
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
             request_chat_id=request_chat_id,
+            ignore_chat_ids=ignore_chat_ids,
         )
 
         self.cash_requests = CashRequestsHandler(

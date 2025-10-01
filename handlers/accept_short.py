@@ -12,16 +12,15 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from db_asyncpg.repo import Repo
-from utils.exchange_base import AbstractExchangeHandler
-from utils.calc import evaluate, CalcError
 from utils.auth import (
     require_manager_or_admin_message,
     require_manager_or_admin_callback,
 )
+from utils.calc import evaluate, CalcError
+from utils.exchange_base import AbstractExchangeHandler
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.requests import post_request_message
-from utils.format_wallet_compact import format_wallet_compact
 
 
 def _fmt_rate(d: Decimal) -> str:
@@ -79,14 +78,21 @@ class AcceptShortHandler(AbstractExchangeHandler):
         admin_chat_ids: set[int] | None = None,
         admin_user_ids: set[int] | None = None,
         request_chat_id: int | None = None,
+        *,
+        ignore_chat_ids: set[int] | None = None,  # NEW: чаты, где игнорируем короткие команды
     ) -> None:
         super().__init__(repo, request_chat_id=request_chat_id)
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.admin_user_ids = set(admin_user_ids or [])
+        self.ignore_chat_ids = set(ignore_chat_ids or set())
         self.router = Router()
         self._register()
 
     async def _cmd_accept_short(self, message: Message) -> None:
+        # Игнорируем команды в «шумных» чатах (заявки/выдачи и т.п.)
+        if self.ignore_chat_ids and message.chat and message.chat.id in self.ignore_chat_ids:
+            return
+
         # доступ: админ-чат / админ-пользователь / менеджер
         if not await require_manager_or_admin_message(
             self.repo, message,
@@ -241,8 +247,8 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await cq.answer("Не удалось распознать суммы", show_alert=True)
             return
 
-        recv_amt_raw, recv_code = p_get         # слева «Получаем» (в этой команде это была списанная у клиента сумма)
-        pay_amt_raw,  pay_code = p_give         # справа «Отдаём»   (в этой команде это была зачисленная клиенту сумма)
+        recv_amt_raw, recv_code = p_get
+        pay_amt_raw,  pay_code = p_give
 
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
