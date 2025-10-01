@@ -20,7 +20,6 @@ def _normalize_dt(v: datetime | date | str | None) -> datetime | None:
     elif isinstance(v, date):
         dt = datetime(v.year, v.month, v.day)
     elif isinstance(v, str):
-        # поддерживаем ISO 8601
         try:
             dt = datetime.fromisoformat(v)
         except ValueError:
@@ -216,7 +215,6 @@ class Repo:
                     new_balance, acc["id"],
                 )
 
-                # нормализуем txn_at (может быть None/str/datetime)
                 txn_at_norm = _normalize_dt(txn_at) if txn_at is not None else None
 
                 rec = await con.fetchrow(
@@ -346,6 +344,8 @@ class Repo:
             row = await con.fetchrow("SELECT 1 FROM managers WHERE user_id=$1", user_id)
             return row is not None
 
+    # ---------- Выписки/экспорт ----------
+
     async def export_transactions(
         self,
         *,
@@ -401,3 +401,39 @@ class Repo:
             """
             rows = await con.fetch(sql, *params)
             return [dict(r) for r in rows]
+
+    # ---------- Настройки (app_settings) ----------
+
+    async def _ensure_settings_table(self, con) -> None:
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+            """
+        )
+
+    async def get_setting(self, key: str) -> str | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            await self._ensure_settings_table(con)
+            row = await con.fetchrow("SELECT value FROM app_settings WHERE key=$1", key)
+            return None if row is None else str(row["value"])
+
+    async def set_setting(self, key: str, value: str) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_settings_table(con)
+                await con.execute(
+                    """
+                    INSERT INTO app_settings(key, value)
+                    VALUES ($1, $2)
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        updated_at = now()
+                    """,
+                    key, value,
+                )
