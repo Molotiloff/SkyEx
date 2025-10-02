@@ -177,6 +177,7 @@ class CashRequestsHandler:
         amount = amount_raw.quantize(q)
         # проектное требование: округлять сумму до целого
         amount = amount.quantize(Decimal("1"))
+        pretty_amount = format_amount_core(amount, prec)
 
         req_id = random.randint(10_000_000, 99_999_999)
         pin_code = str(f"{random.randint(100, 999)}-{random.randint(100, 999)}")
@@ -190,7 +191,7 @@ class CashRequestsHandler:
         lines = [
             f"Заявка: <code>{req_id}</code>",
             "-----",
-            f"Сумма: <code>{amount} {code.lower()}</code>",
+            f"Сумма: <code>{pretty_amount} {code.lower()}</code>",
             temp_line,
         ]
         if tg_to:
