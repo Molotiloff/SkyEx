@@ -116,12 +116,26 @@ class ClientsBalancesHandler:
                     parse_mode="HTML")
                 return
 
-            filtered.sort(key=lambda r: (r.get("client_name") or "").lower())
+            # сортировка:
+            #   для "-" — по возрастанию баланса (самые большие долги первыми);
+            #   для "+" — по убыванию баланса (самые большие остатки первыми).
+            if sign_filter == "-":
+                filtered.sort(
+                    key=lambda r: (
+                        Decimal(str(r["balance"])),              # больше отрицание → раньше
+                        (r.get("client_name") or "").lower(),
+                    )
+                )
+            else:
+                filtered.sort(
+                    key=lambda r: (
+                        -Decimal(str(r["balance"])),             # больше баланс → раньше
+                        (r.get("client_name") or "").lower(),
+                    )
+                )
 
-            out_lines: list[str] = []
             cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
-            head = f"Клиенты по {html.escape(code_filter)} ({cmp_html}):"
-            out_lines = [head, ""]
+            out_lines: list[str] = [f"Клиенты по {html.escape(code_filter)} ({cmp_html}):", ""]
 
             for r in filtered:
                 name = html.escape(r.get("client_name") or "")
@@ -156,6 +170,7 @@ class ClientsBalancesHandler:
                     parse_mode="HTML")
                 return
 
+            # здесь оставляем алфавитную сортировку по имени
             filtered.sort(key=lambda r: (r.get("client_name") or "").lower())
 
             out_lines: list[str] = [
