@@ -216,9 +216,9 @@ class AcceptShortHandler(AbstractExchangeHandler):
     # ====== КОЛЛБЭК ОТМЕНЫ ЗАЯВКИ ======
     async def _cb_cancel(self, cq: CallbackQuery) -> None:
         if not await require_manager_or_admin_callback(
-            self.repo, cq,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
+                self.repo, cq,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
         ):
             return
 
@@ -247,8 +247,8 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await cq.answer("Не удалось распознать суммы", show_alert=True)
             return
 
-        recv_amt_raw, recv_code = p_get
-        pay_amt_raw,  pay_code = p_give
+        recv_amt_raw, recv_code = p_get  # «Получаем» (слева)
+        pay_amt_raw, pay_code = p_give  # «Отдаём»   (справа)
 
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
@@ -269,7 +269,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
         q_recv = Decimal(10) ** -recv_prec
         q_pay = Decimal(10) ** -pay_prec
         recv_amt = recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amt = pay_amt_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_amt = pay_amt_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
 
         # Идемпотентные ключи отмены по id сообщения с заявкой
         idem_left = f"cancel:{chat_id}:{msg.message_id}:recv"
@@ -309,7 +309,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             except Exception:
                 pass
 
-        # уведомление в заявочный чат
+        # уведомление в заявочный чат (кратко)
         if self.request_chat_id:
             try:
                 await post_request_message(
@@ -321,23 +321,38 @@ class AcceptShortHandler(AbstractExchangeHandler):
             except Exception:
                 pass
 
-        # показать лаконичное подтверждение и текущий баланс по КОНКРЕТНОЙ валюте «Отдаём»
+        # Итоговое сообщение клиенту: операции по обеим валютам + их балансы
         accounts2 = await self.repo.snapshot_wallet(client_id)
-        acc_cur = next((r for r in accounts2 if str(r["currency_code"]).upper() == pay_code.upper()), None)
-        if acc_cur:
-            cur_bal = Decimal(str(acc_cur["balance"]))
-            cur_prec = int(acc_cur["precision"])
-            pretty_bal = format_amount_core(cur_bal, cur_prec)
-            await cq.message.answer(
-                f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n"
-                f"Баланс: {pretty_bal} {pay_code.lower()}",
-                parse_mode="HTML",
-            )
+        acc_recv2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == recv_code.upper()), None)
+        acc_pay2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == pay_code.upper()), None)
+
+        # суммы операции в «читаемом» виде
+        pretty_recv_op = format_amount_core(recv_amt, recv_prec)  # будет со знаками без префикса; префикс добавим сами
+        pretty_pay_op = format_amount_core(pay_amt, pay_prec)
+
+        # текущие балансы
+        if acc_recv2:
+            recv_bal = Decimal(str(acc_recv2["balance"]))
+            recv_prec2 = int(acc_recv2["precision"])
+            pretty_recv_bal = format_amount_core(recv_bal, recv_prec2)
         else:
-            await cq.message.answer(
-                f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.",
-                parse_mode="HTML",
-            )
+            pretty_recv_bal = "—"
+
+        if acc_pay2:
+            pay_bal = Decimal(str(acc_pay2["balance"]))
+            pay_prec2 = int(acc_pay2["precision"])
+            pretty_pay_bal = format_amount_core(pay_bal, pay_prec2)
+        else:
+            pretty_pay_bal = "—"
+
+        text_client = (
+            f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
+            f"Операция по {recv_code.lower()}: <code>+{pretty_recv_op} {recv_code.lower()}</code>\n"
+            f"Баланс: <code>{pretty_recv_bal} {recv_code.lower()}</code>\n\n"
+            f"Операция по {pay_code.lower()}: <code>-{pretty_pay_op} {pay_code.lower()}</code>\n"
+            f"Баланс: <code>{pretty_pay_bal} {pay_code.lower()}</code>"
+        )
+        await cq.message.answer(text_client, parse_mode="HTML")
 
         await cq.answer("Заявка отменена")
 
