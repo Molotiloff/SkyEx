@@ -332,17 +332,39 @@ class AbstractExchangeHandler(ABC):
             await message.answer(f"Не удалось изменить заявку: {e}")
             return True  # попытку редактирования мы делали — дальше не создаём новую
 
-        # В заявочный чат — предупреждение
+        # В заявочный чат — предупреждение + дублирование актуальной карточки заявки
         if self.request_chat_id:
-            alert_text = f"⚠️ Внимание: заявка <code>{edit_req_id}</code> изменена."
+            # карточка в «заявочном» формате (с Клиентом)
+            req_lines = [
+                f"Заявка: <code>{edit_req_id}</code>",
+                f"Клиент: <b>{html.escape(chat_name)}</b>",
+                "-----",
+                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
+                f"Курс: <code>{rate_str}</code>",
+                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+            ]
+            if user_note:
+                req_lines += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            req_lines += ["----", f"Изменение: <code>{ts}</code>"]
+            # если удалось вытащить прежнего создателя — добавим
+            if creator_name:
+                req_lines += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
+
+            alert_text = (
+                    f"⚠️ Внимание: заявка <code>{edit_req_id}</code> изменена.\n\n" +
+                    "\n".join(req_lines)
+            )
             try:
                 await post_request_message(
-                    bot=message.bot, request_chat_id=self.request_chat_id,
-                    text=alert_text, reply_markup=None,
+                    bot=message.bot,
+                    request_chat_id=self.request_chat_id,
+                    text=alert_text,
+                    reply_markup=None,
                 )
             except Exception:
                 pass
-
+                
         # Показываем актуальные балансы (как /дай)
         rows = await self.repo.snapshot_wallet(client_id)
         compact = format_wallet_compact(rows, only_nonzero=True)
