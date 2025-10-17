@@ -100,7 +100,8 @@ class BotApp:
         self.admin_request_handler = AdminRequestHandler(
             self.repo,
             admin_chat_id=self.config.admin_chat_id,
-            admin_user_ids=self.config.admin_ids,  # опционально
+            request_chat_id=request_chat_id,
+            admin_user_ids=self.config.admin_ids,
         )
         self.dp.include_router(self.admin_request_handler.router)
 

@@ -215,75 +215,87 @@ class AbstractExchangeHandler(ABC):
     # Попытка отредактировать существующую заявку (если команда-ответ)
     # Возвращает True, если редактирование выполнено, иначе False.
     # ================================================================
+        # utils/exchange_base.py
+
     async def try_edit_request(
-        self,
-        *,
-        message: Message,
-        recv_code: str,
-        pay_code: str,
-        recv_amount: Decimal,
-        pay_amount: Decimal,
-        recv_prec: int,
-        pay_prec: int,
-        rate_str: str,
-        user_note: str | None,
-        recv_is_deposit: bool,
-        pay_is_withdraw: bool,
+            self,
+            *,
+            message: Message,
+            recv_code: str,
+            pay_code: str,
+            recv_amount: Decimal,
+            pay_amount: Decimal,
+            recv_prec: int,
+            pay_prec: int,
+            rate_str: str,
+            user_note: str | None,
+            recv_is_deposit: bool,
+            pay_is_withdraw: bool,
     ) -> bool:
         reply_msg = getattr(message, "reply_to_message", None)
         if not (reply_msg and (reply_msg.text or "")):
+            # Нет реплая — это не редактирование, создаём новую заявку в вызывающем коде
             return False
 
-        # Поиск целевой заявки: либо ответ на бота, либо на исходную команду
-        is_edit = False
-        edit_req_id: str | None = None
-        target_bot_msg_id: int | None = None
-
+        # Разрешаем редактирование ТОЛЬКО если ответ на сообщение БОТА с карточкой
         if reply_msg.from_user and reply_msg.from_user.id == message.bot.id:
-            # Ответ на сообщение БОТА — достаём req_id
             mid = _RE_REQ_ID.search(reply_msg.text or "")
-            if mid:
-                is_edit = True
-                edit_req_id = mid.group(1)
-                target_bot_msg_id = reply_msg.message_id
+            if not mid:
+                await message.answer(
+                    "Это сообщение бота не похоже на карточку заявки.\n"
+                    "Чтобы изменить заявку и пересчитать баланс, ответьте на сообщение БОТА с заявкой."
+                )
+                return True
+            edit_req_id = mid.group(1)
+            target_bot_msg_id = reply_msg.message_id
         else:
-            # Ответ на исходную команду пользователя — ищем связку в индексе
+            # Ответ НЕ боту:
+            # 1) Если это ответ на исходную команду (есть линк в индексе) — запрещаем.
             link = req_index.lookup(message.chat.id, reply_msg.message_id)
             if link is not None:
-                is_edit = True
-                edit_req_id = link.req_id
-                target_bot_msg_id = link.bot_msg_id
+                await message.answer(
+                    "Пожалуйста, ответьте на сообщение БОТА с карточкой заявки."
+                )
+                return True
 
-        if not (is_edit and edit_req_id and target_bot_msg_id):
-            return False
+            # 2) Если выглядит как карточка (пересланная/чужая) — тоже запрещаем.
+            if _RE_REQ_ID.search(reply_msg.text or ""):
+                await message.answer(
+                    "Похоже, вы ответили на пересланную или чужую карточку.\n"
+                    "Чтобы изменить заявку и пересчитать баланс, ответьте на оригинальное сообщение БОТА с заявкой."
+                )
+                return True
 
-        # Достаём контекст клиента
+            # 3) Любой другой текст — просто инструкция.
+            await message.answer(
+                "Чтобы изменить заявку и пересчитать баланс, ответьте на сообщение БОТА с карточкой заявки."
+            )
+            return True
+
+        # Дальше — обычное редактирование существующей карточки бота
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
 
-        # Форматированные суммы
         pretty_recv = format_amount_core(recv_amount, recv_prec)
-        pretty_pay  = format_amount_core(pay_amount,  pay_prec)
+        pretty_pay = format_amount_core(pay_amount, pay_prec)
 
-        # Имя создателя: берём из старого текста, если было, иначе — текущий пользователь
+        # имя создателя — как раньше
         creator_name: str | None = None
         if reply_msg and reply_msg.text:
             m_created = _RE_CREATED_BY.search(reply_msg.text)
             if m_created:
                 creator_name = m_created.group(1).strip()
-
         if not creator_name:
             u = getattr(message, "from_user", None)
             if u:
                 creator_name = (
-                    getattr(u, "full_name", None)
-                    or (f"@{u.username}" if getattr(u, "username", None) else None)
-                    or f"id:{u.id}"
+                        getattr(u, "full_name", None)
+                        or (f"@{u.username}" if getattr(u, "username", None) else None)
+                        or f"id:{u.id}"
                 )
         creator_name = creator_name or "unknown"
 
-        # Собираем новый текст для клиента (без «Клиент» и без «Формула»)
         parts_client = [
             f"Заявка: <code>{edit_req_id}</code>",
             "-----",
@@ -297,29 +309,28 @@ class AbstractExchangeHandler(ABC):
         parts_client += ["----", f"Изменение: <code>{ts}</code>"]
         new_client_text = "\n".join(parts_client)
 
-        # Пересчёт балансов — только если редактируем ответом на сообщение БОТА (у нас есть старый текст)
         did_recalc = False
         try:
-            if reply_msg and reply_msg.from_user and reply_msg.from_user.id == message.bot.id:
-                did_recalc = await self.apply_edit_delta(
-                    client_id=client_id,
-                    old_request_text=reply_msg.text or "",
-                    recv_code_new=recv_code,
-                    pay_code_new=pay_code,
-                    recv_amount_new=recv_amount,
-                    pay_amount_new=pay_amount,
-                    recv_prec=recv_prec,
-                    pay_prec=pay_prec,
-                    chat_id=chat_id,
-                    target_bot_msg_id=target_bot_msg_id,
-                    cmd_msg_id=message.message_id,
-                    recv_is_deposit=recv_is_deposit,
-                    pay_is_withdraw=pay_is_withdraw,
-                )
+            # Есть старый текст карточки бота — применяем дельту с идемпотентностью
+            did_recalc = await self.apply_edit_delta(
+                client_id=client_id,
+                old_request_text=reply_msg.text or "",
+                recv_code_new=recv_code,
+                pay_code_new=pay_code,
+                recv_amount_new=recv_amount,
+                pay_amount_new=pay_amount,
+                recv_prec=recv_prec,
+                pay_prec=pay_prec,
+                chat_id=chat_id,
+                target_bot_msg_id=target_bot_msg_id,
+                cmd_msg_id=message.message_id,
+                recv_is_deposit=recv_is_deposit,
+                pay_is_withdraw=pay_is_withdraw,
+            )
         except Exception as e:
             await message.answer(f"Не удалось пересчитать балансы: {e}")
 
-        # Обновляем текст заявки — и снова ставим кнопку отмены
+        # Обновляем карточку
         try:
             await message.bot.edit_message_text(
                 chat_id=message.chat.id,
@@ -330,11 +341,10 @@ class AbstractExchangeHandler(ABC):
             )
         except Exception as e:
             await message.answer(f"Не удалось изменить заявку: {e}")
-            return True  # попытку редактирования мы делали — дальше не создаём новую
+            return True
 
-        # В заявочный чат — предупреждение + дублирование актуальной карточки заявки
+        # Дублирование в заявочный чат и показ /дай — как было
         if self.request_chat_id:
-            # карточка в «заявочном» формате (с Клиентом)
             req_lines = [
                 f"Заявка: <code>{edit_req_id}</code>",
                 f"Клиент: <b>{html.escape(chat_name)}</b>",
@@ -345,27 +355,14 @@ class AbstractExchangeHandler(ABC):
             ]
             if user_note:
                 req_lines += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            req_lines += ["----", f"Изменение: <code>{ts}</code>"]
-            # если удалось вытащить прежнего создателя — добавим
-            if creator_name:
-                req_lines += ["----", f"Создал: <b>{html.escape(creator_name)}</b>"]
-
-            alert_text = (
-                    f"⚠️ Внимание: заявка <code>{edit_req_id}</code> изменена.\n\n" +
-                    "\n".join(req_lines)
-            )
+            req_lines += ["----", f"Изменение: <code>{ts}</code>", "----",
+                          f"Создал: <b>{html.escape(creator_name)}</b>"]
+            alert_text = "⚠️ Внимание: заявка изменена.\n\n" + "\n".join(req_lines)
             try:
-                await post_request_message(
-                    bot=message.bot,
-                    request_chat_id=self.request_chat_id,
-                    text=alert_text,
-                    reply_markup=None,
-                )
+                await post_request_message(message.bot, self.request_chat_id, alert_text, reply_markup=None)
             except Exception:
                 pass
-                
-        # Показываем актуальные балансы (как /дай)
+
         rows = await self.repo.snapshot_wallet(client_id)
         compact = format_wallet_compact(rows, only_nonzero=True)
         if compact == "Пусто":
@@ -376,10 +373,8 @@ class AbstractExchangeHandler(ABC):
             await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
         if not did_recalc:
-            await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, отвечайте на сообщение БОТА с заявкой.")
-
+            await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, ответьте на сообщение БОТА с заявкой.")
         return True
-
     # ================================================================
     # Создание новой заявки с проведением двух ног обмена
     # ================================================================
