@@ -8,6 +8,7 @@ from handlers.balances_clients import ClientsBalancesHandler
 from handlers.cash_requests import CashRequestsHandler
 from handlers.city import CityAssignHandler
 from handlers.clients import ClientsHandler
+from handlers.cross import CrossRateHandler
 from handlers.debug import debug_router
 from handlers.managers import ManagersHandler
 from handlers.usdt_wallet import UsdtWalletHandler
@@ -36,7 +37,6 @@ class BotApp:
         cash_chat_id = self.config.cash_chat_id
 
         # Чаты, где нужно игнорировать валютные команды типа "/USD 100"
-        # (например, чат заявок/выдач и кассовый чат)
         ignore_chat_ids = {cid for cid in (request_chat_id, cash_chat_id) if cid}
 
         self.dp = Dispatcher()
@@ -55,7 +55,10 @@ class BotApp:
         )
         self.dp.include_router(self.managers_handler.router)
 
-        # USDT-кошелёк: тут регистрируется /кош
+        self.cross_handler = CrossRateHandler()
+        self.dp.include_router(self.cross_handler.router)
+
+        # USDT-кошелёк
         self.usdt_wallet_handler = UsdtWalletHandler(
             self.repo,
             admin_chat_ids={self.config.admin_chat_id} if getattr(self.config, "admin_chat_id", None) else set(),
