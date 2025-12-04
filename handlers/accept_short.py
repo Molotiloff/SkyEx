@@ -103,7 +103,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
 
         raw = (message.text or "")
         m = re.match(
-            r"^/(пд|пе|пт|пр|пб)(?:@\w+)?\s+(.+?)\s+(од|ое|от|ор|об)\s+(\S+)(?:\s+(.+))?$",
+            r"^/(пд|пе|пт|пр|пб|прмск|прспб)(?:@\w+)?\s+(.+?)\s+(од|ое|от|ор|об|ормск|орспб)\s+(\S+)(?:\s+(.+))?$",
             raw, flags=re.IGNORECASE | re.UNICODE
         )
         if not m:
@@ -125,9 +125,10 @@ class AcceptShortHandler(AbstractExchangeHandler):
         user_note = (m.group(5) or "").strip()
 
         recv_code = self.RECV_MAP.get(recv_key)
-        pay_code = self.PAY_MAP.get(pay_key)
+        pay_code  = self.PAY_MAP.get(pay_key)
         if not recv_code or not pay_code:
-            await message.answer("Не распознал валюты. Используйте: /пд /пе /пт /пр /пб и од/ое/от/ор/об.")
+            await message.answer("Не распознал валюты. Используйте: /пд /пе /пт /пр /пб /прмск /прспб и "
+                                 "од/ое/от/ор/об/ормск/орспб.")
             return
 
         # Валидируем выражения (без комментария)
@@ -151,20 +152,20 @@ class AcceptShortHandler(AbstractExchangeHandler):
             return next((r for r in accounts if str(r["currency_code"]).upper() == code), None)
 
         acc_recv = _find_acc(recv_code)
-        acc_pay = _find_acc(pay_code)
+        acc_pay  = _find_acc(pay_code)
         if not acc_recv or not acc_pay:
             missing = recv_code if not acc_recv else pay_code
             await message.answer(f"Счёт {missing} не найден. Добавьте валюту: /добавь {missing} [точность]")
             return
 
         recv_prec = int(acc_recv["precision"])
-        pay_prec = int(acc_pay["precision"])
+        pay_prec  = int(acc_pay["precision"])
 
-        # Квантуем и считаем курс «как людям удобно»
+        # Квантуем и считаем курс
         q_recv = Decimal(10) ** -recv_prec
-        q_pay = Decimal(10) ** -pay_prec
+        q_pay  = Decimal(10) ** -pay_prec
         recv_amount = recv_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amount = pay_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_amount  = pay_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
         if recv_amount == 0 or pay_amount == 0:
             await message.answer("Сумма слишком мала для точности выбранных валют.")
             return
@@ -184,7 +185,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await message.answer("Ошибка расчёта курса.")
             return
 
-        # === ПОПЫТКА РЕДАКТИРОВАНИЯ (вынесено в exchange_base) ===
+        # Попытка редактирования (строго ответом на карточку бота)
         handled = await self.try_edit_request(
             message=message,
             recv_code=recv_code,
@@ -201,7 +202,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
         if handled:
             return
 
-        # === СОЗДАНИЕ НОВОЙ ЗАЯВКИ ===
+        # Создание новой заявки
         await self.process(
             message,
             recv_code=recv_code,
@@ -362,9 +363,11 @@ class AcceptShortHandler(AbstractExchangeHandler):
         self.router.message.register(self._cmd_accept_short, Command("пт"))
         self.router.message.register(self._cmd_accept_short, Command("пр"))
         self.router.message.register(self._cmd_accept_short, Command("пб"))
+        self.router.message.register(self._cmd_accept_short, Command("прмск"))
+        self.router.message.register(self._cmd_accept_short, Command("прспб"))
         self.router.message.register(
             self._cmd_accept_short,
-            F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб)(?:@\w+)?\b"),
+            F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб|прмск|прспб)(?:@\w+)?\b"),
         )
         # обработчик коллбэка отмены — ВЕРНУЛИ
         self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))

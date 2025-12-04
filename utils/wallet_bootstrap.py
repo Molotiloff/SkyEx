@@ -8,6 +8,8 @@ DEFAULT_CURRENCIES: list[tuple[str, int]] = [
     ("RUB", 2),
     ("EUR", 2),
     ("РУБПЕР", 2),
+    ("РУБСПБ", 2),
+    ("РУБМСК", 2),
 ]
 
 
