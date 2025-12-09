@@ -40,23 +40,14 @@ _CURRENCY_ALIASES = {
     "usdw": "USDW", "долб": "USDW", "доллбел": "USDW", "долбел": "USDW",
 }
 
-_ALLOWED_EXPR_CHARS = r"0-9\.\,\+\-\*\/\(\)\s"
+_ALLOWED_EXPR_CHARS = r"0-9\.\,\+\-\*\/\(\)\s%"
 
 
 def _extract_expr_prefix(s: str) -> str:
     if not s:
-        return s
-    s = s.strip()
-    try:
-        _ = evaluate(s.replace(",", "."))
-        return s.replace(",", ".")
-    except Exception:
-        pass
-    m = re.match(rf"^[{_ALLOWED_EXPR_CHARS}]+", s)
-    if not m:
         return ""
-    expr = m.group(0).strip()
-    return expr.replace(",", ".")
+    first = s.strip().split(maxsplit=1)[0]
+    return first.replace(",", ".")
 
 
 def _normalize_code_alias(raw_code: str) -> str:
