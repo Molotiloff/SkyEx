@@ -100,6 +100,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             admin_user_ids=self.admin_user_ids,
         ):
             return
+        RUB_CODES = {"RUB", "РУБМСК", "РУБСПБ"}
 
         raw = (message.text or "")
         m = re.match(
@@ -125,13 +126,13 @@ class AcceptShortHandler(AbstractExchangeHandler):
         user_note = (m.group(5) or "").strip()
 
         recv_code = self.RECV_MAP.get(recv_key)
-        pay_code  = self.PAY_MAP.get(pay_key)
+        pay_code = self.PAY_MAP.get(pay_key)
         if not recv_code or not pay_code:
             await message.answer("Не распознал валюты. Используйте: /пд /пе /пт /пр /пб /прмск /прспб и "
                                  "од/ое/от/ор/об/ормск/орспб.")
             return
 
-        # Валидируем выражения (без комментария)
+        # Валидируем выражения
         try:
             recv_raw = evaluate(recv_amount_expr)
             pay_raw = evaluate(pay_amount_expr)
@@ -143,7 +144,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             await message.answer(f"Ошибка в выражениях: {e}")
             return
 
-        # Точности счётов (для форматирования), без изменения балансов
+        # Точности (для форматирования)
         chat_id = message.chat.id
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=(message.chat.full_name or ""))
         accounts = await self.repo.snapshot_wallet(client_id)
@@ -152,28 +153,32 @@ class AcceptShortHandler(AbstractExchangeHandler):
             return next((r for r in accounts if str(r["currency_code"]).upper() == code), None)
 
         acc_recv = _find_acc(recv_code)
-        acc_pay  = _find_acc(pay_code)
+        acc_pay = _find_acc(pay_code)
         if not acc_recv or not acc_pay:
             missing = recv_code if not acc_recv else pay_code
             await message.answer(f"Счёт {missing} не найден. Добавьте валюту: /добавь {missing} [точность]")
             return
 
         recv_prec = int(acc_recv["precision"])
-        pay_prec  = int(acc_pay["precision"])
+        pay_prec = int(acc_pay["precision"])
 
         # Квантуем и считаем курс
         q_recv = Decimal(10) ** -recv_prec
-        q_pay  = Decimal(10) ** -pay_prec
+        q_pay = Decimal(10) ** -pay_prec
         recv_amount = recv_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amount  = pay_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_amount = pay_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
         if recv_amount == 0 or pay_amount == 0:
             await message.answer("Сумма слишком мала для точности выбранных валют.")
             return
 
         try:
-            if recv_code == "RUB" or pay_code == "RUB":
-                rub_raw = recv_raw if recv_code == "RUB" else pay_raw
-                other_raw = pay_raw if recv_code == "RUB" else recv_raw
+            if recv_code in RUB_CODES or pay_code in RUB_CODES:
+                if recv_code in RUB_CODES:
+                    rub_raw = recv_raw
+                    other_raw = pay_raw
+                else:
+                    rub_raw = pay_raw
+                    other_raw = recv_raw
                 rate = rub_raw / other_raw
             else:
                 rate = pay_raw / recv_raw

@@ -393,6 +393,8 @@ class AbstractExchangeHandler(ABC):
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
 
+        RUB_CODES: set[str] = {"RUB", "РУБМСК", "РУБСПБ"}
+
         # 1) выражения → Decimal
         try:
             recv_amount_raw = evaluate(recv_amount_expr)
@@ -439,14 +441,22 @@ class AbstractExchangeHandler(ABC):
 
             # 4) курс
             try:
-                if recv_code == "RUB" or pay_code == "RUB":
-                    rub_raw = recv_amount_raw if recv_code == "RUB" else pay_amount_raw
-                    other_raw = pay_amount_raw if recv_code == "RUB" else recv_amount_raw
+                # RUB-логика для всех рублёвых кодов (RUB, РУБМСК, РУБСПБ)
+                if recv_code in RUB_CODES or pay_code in RUB_CODES:
+                    if recv_code in RUB_CODES:
+                        rub_raw = recv_amount_raw
+                        other_raw = pay_amount_raw
+                    else:
+                        rub_raw = pay_amount_raw
+                        other_raw = recv_amount_raw
+
                     if other_raw == 0:
                         await message.answer("Курс не определён (деление на ноль).")
                         return
+
                     auto_rate = rub_raw / other_raw
                 else:
+                    # обычный случай: курс = pay / recv
                     if recv_amount_raw == 0:
                         await message.answer("Курс не определён (деление на ноль).")
                         return
