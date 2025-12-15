@@ -69,8 +69,10 @@ class AcceptShortHandler(AbstractExchangeHandler):
     Если команда отправлена в ответ на сообщение с заявкой (бота ИЛИ исходную команду) —
     редактируем существующую заявку (только менеджеры/админы).
     """
-    RECV_MAP = {"пд": "USD", "пе": "EUR", "пт": "USDT", "пр": "RUB", "пб": "USDW", "прмск": "РУБМСК", "прспб": "РУБСПБ"}
-    PAY_MAP  = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB", "об": "USDW", "ормск": "РУБМСК", "орспб": "РУБСПБ"}
+    RECV_MAP = {"пд": "USD", "пе": "EUR", "пт": "USDT", "пр": "RUB", "пб": "USDW", "прмск": "РУБМСК", "прспб": "РУБСПБ",
+                "прпер": "РУБПЕР"}
+    PAY_MAP = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB", "об": "USDW", "ормск": "РУБМСК", "орспб": "РУБСПБ",
+                "прпер": "РУБПЕР"}
 
     def __init__(
         self,
@@ -100,11 +102,11 @@ class AcceptShortHandler(AbstractExchangeHandler):
             admin_user_ids=self.admin_user_ids,
         ):
             return
-        RUB_CODES = {"RUB", "РУБМСК", "РУБСПБ"}
+        RUB_CODES = {"RUB", "РУБМСК", "РУБСПБ", "РУБПЕР"}
 
         raw = (message.text or "")
         m = re.match(
-            r"^/(пд|пе|пт|пр|пб|прмск|прспб)(?:@\w+)?\s+(.+?)\s+(од|ое|от|ор|об|ормск|орспб)\s+(\S+)(?:\s+(.+))?$",
+            r"^/(пд|пе|пт|пр|пб|прмск|прспб|прпер)(?:@\w+)?\s+(.+?)\s+(од|ое|от|ор|об|ормск|орспб|орпер)\s+(\S+)(?:\s+(.+))?$",
             raw, flags=re.IGNORECASE | re.UNICODE
         )
         if not m:
@@ -370,9 +372,10 @@ class AcceptShortHandler(AbstractExchangeHandler):
         self.router.message.register(self._cmd_accept_short, Command("пб"))
         self.router.message.register(self._cmd_accept_short, Command("прмск"))
         self.router.message.register(self._cmd_accept_short, Command("прспб"))
+        self.router.message.register(self._cmd_accept_short, Command("прпер"))
         self.router.message.register(
             self._cmd_accept_short,
-            F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб|прмск|прспб)(?:@\w+)?\b"),
+            F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб|прмск|прспб|прпер)(?:@\w+)?\b"),
         )
         # обработчик коллбэка отмены — ВЕРНУЛИ
         self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))

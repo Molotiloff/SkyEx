@@ -393,7 +393,7 @@ class AbstractExchangeHandler(ABC):
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
 
-        RUB_CODES: set[str] = {"RUB", "РУБМСК", "РУБСПБ"}
+        RUB_CODES: set[str] = {"RUB", "РУБМСК", "РУБСПБ", "РУБПЕР"}
 
         # 1) выражения → Decimal
         try:
