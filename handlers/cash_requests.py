@@ -179,7 +179,7 @@ class CashRequestsHandler:
         # теперь КОД после строки "Принимает"
         base_lines.append(f"Код: <tg-spoiler>{pin_code}</tg-spoiler>")
         if comment:
-            base_lines += ["----", f"Комментарий: <code>{html.escape(comment)}</code>"]
+            base_lines += ["----", f"❗️Комментарий: <code>{html.escape(comment)}</code>"]
 
         text_client = "\n".join(base_lines)
 

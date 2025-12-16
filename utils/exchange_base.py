@@ -354,7 +354,7 @@ class AbstractExchangeHandler(ABC):
                 f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if user_note:
-                req_lines += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
+                req_lines += ["----", f"❗️Комментарий: <code>{html.escape(user_note)}</code>"]
             req_lines += ["----", f"Изменение: <code>{ts}</code>", "----",
                           f"Создал: <b>{html.escape(creator_name)}</b>"]
             alert_text = "⚠️ Внимание: заявка изменена.\n\n" + "\n".join(req_lines)
@@ -373,7 +373,7 @@ class AbstractExchangeHandler(ABC):
             await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
         if not did_recalc:
-            await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, ответьте на сообщение БОТА с заявкой.")
+            await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, отвечайте на сообщение БОТА с заявкой.")
         return True
     # ================================================================
     # Создание новой заявки с проведением двух ног обмена
@@ -500,11 +500,9 @@ class AbstractExchangeHandler(ABC):
                 f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if note:
-                base_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
-            # Клиенту — без строки «Клиент» и без формулы
+                base_lines += ["----", f"❗️Комментарий: <code>{html.escape(note)}</code>"]
             client_text = "\n".join(base_lines)
 
-            # В заявочный чат — строка «Клиент» сразу после номера заявки + формула + подпись создателя
             request_lines = [
                 f"Заявка: <code>{req_id}</code>",
                 f"Клиент: <b>{html.escape(chat_name)}</b>",
@@ -514,7 +512,7 @@ class AbstractExchangeHandler(ABC):
                 f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if note:
-                request_lines += ["----", f"Комментарий: <code>{html.escape(note)}</code>"]
+                request_lines += ["----", f"❗️Комментарий: <code>{html.escape(note)}</code>"]
             request_lines += [
                 "----",
                 f"Формула: <code>{html.escape(pay_amount_expr)}</code>",

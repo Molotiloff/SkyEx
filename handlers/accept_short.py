@@ -141,7 +141,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
             if recv_raw <= 0 or pay_raw <= 0:
                 await message.answer("Суммы должны быть > 0")
                 return
-            _ = recv_raw / pay_raw  # проверка деления
+            _ = recv_raw / pay_raw  # sanity check деления
         except (CalcError, InvalidOperation, ZeroDivisionError) as e:
             await message.answer(f"Ошибка в выражениях: {e}")
             return
@@ -188,6 +188,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
                 await message.answer("Курс невалидный.")
                 return
             rate_str = _fmt_rate(rate.quantize(Decimal("1e-8")))
+            print(rate_str)
         except (InvalidOperation, ZeroDivisionError):
             await message.answer("Ошибка расчёта курса.")
             return
