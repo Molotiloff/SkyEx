@@ -109,13 +109,6 @@ class BotApp:
         )
         self.dp.include_router(self.admin_request_handler.router)
 
-        self.broadcast_all = BroadcastAllHandler(
-            self.repo,
-            admin_chat_ids={self.config.admin_chat_id} if self.config.admin_chat_id else set(),
-            admin_user_ids=admin_user_list,
-        )
-        self.dp.include_router(self.broadcast_all.router)
-
         self.clients_balances = ClientsBalancesHandler(self.repo, admin_chat_ids=admin_chat_list)
         self.dp.include_router(self.clients_balances.router)
 
