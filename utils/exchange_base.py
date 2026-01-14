@@ -297,16 +297,16 @@ class AbstractExchangeHandler(ABC):
         creator_name = creator_name or "unknown"
 
         parts_client = [
-            f"Заявка: <code>{edit_req_id}</code>",
+            f"<b>Заявка</b>: <code>{edit_req_id}</code>",
             "-----",
-            f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
-            f"Курс: <code>{rate_str}</code>",
-            f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+            f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
+            f"<b>Курс</b>: <code>{rate_str}</code>",
+            f"<b>Отдаём</b>: <code>{pretty_pay} {pay_code.lower()}</code>",
         ]
         if user_note:
-            parts_client += ["----", f"Комментарий: <code>{html.escape(user_note)}</code>"]
+            parts_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(user_note)}</code>"]
         ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-        parts_client += ["----", f"Изменение: <code>{ts}</code>"]
+        parts_client += ["----", f"<b>Изменение</b>: <code>{ts}</code>"]
         new_client_text = "\n".join(parts_client)
 
         did_recalc = False
@@ -346,15 +346,15 @@ class AbstractExchangeHandler(ABC):
         # Дублирование в заявочный чат и показ /дай — как было
         if self.request_chat_id:
             req_lines = [
-                f"Заявка: <code>{edit_req_id}</code>",
-                f"Клиент: <b>{html.escape(chat_name)}</b>",
+                f"<b>Заявка</b>: <code>{edit_req_id}</code>",
+                f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
-                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
-                f"Курс: <code>{rate_str}</code>",
-                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+                f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
+                f"<b>Курс</b>: <code>{rate_str}</code>",
+                f"<b>Отдаём</b>: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if user_note:
-                req_lines += ["----", f"❗️Комментарий: <code>{html.escape(user_note)}</code>"]
+                req_lines += ["----", f"Комментарий: <code>{html.escape(user_note)}</code> ❗️"]
             req_lines += ["----", f"Изменение: <code>{ts}</code>", "----",
                           f"Создал: <b>{html.escape(creator_name)}</b>"]
             alert_text = "⚠️ Внимание: заявка изменена.\n\n" + "\n".join(req_lines)
@@ -493,38 +493,38 @@ class AbstractExchangeHandler(ABC):
             creator_name = creator_name or "unknown"
 
             base_lines = [
-                f"Заявка: <code>{req_id}</code>",
+                f"<b>Заявка</b>: <code>{req_id}</code>",
                 "-----",
-                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
-                f"Курс: <code>{rate_str}</code>",
-                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+                f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
+                f"<b>Курс</b>: <code>{rate_str}</code>",
+                f"<b>Отдаём</b>: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if note:
-                base_lines += ["----", f"❗️Комментарий: <code>{html.escape(note)}</code>"]
+                base_lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(note)}</code>❗️"]
             client_text = "\n".join(base_lines)
 
             request_lines = [
-                f"Заявка: <code>{req_id}</code>",
-                f"Клиент: <b>{html.escape(chat_name)}</b>",
+                f"<b>Заявка</b>: <code>{req_id}</code>",
+                f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
-                f"Получаем: <code>{pretty_recv} {recv_code.lower()}</code>",
-                f"Курс: <code>{rate_str}</code>",
-                f"Отдаём: <code>{pretty_pay} {pay_code.lower()}</code>",
+                f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
+                f"<b>Курс</b>: <code>{rate_str}</code>",
+                f"<b>Отдаём</b>: <code>{pretty_pay} {pay_code.lower()}</code>",
             ]
             if note:
-                request_lines += ["----", f"❗️Комментарий: <code>{html.escape(note)}</code>"]
+                request_lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(note)}</code>❗️"]
             request_lines += [
                 "----",
-                f"Формула: <code>{html.escape(pay_amount_expr)}</code>",
+                f"<b>Формула</b>: <code>{html.escape(pay_amount_expr)}</code>",
                 "----",
-                f"Создал: <b>{html.escape(creator_name)}</b>",
+                f"<b>Создал</b>: <b>{html.escape(creator_name)}</b>",
             ]
 
             request_text = "\n".join(request_lines)
 
             # 6) проведение операций
             idem_recv = f"{chat_id}:{message.message_id}:recv"
-            idem_pay  = f"{chat_id}:{message.message_id}:pay"
+            idem_pay = f"{chat_id}:{message.message_id}:pay"
 
             recv_comment = recv_amount_expr if not note else f"{recv_amount_expr} | {note}"
             pay_comment  = pay_amount_expr  if not note else f"{pay_amount_expr} | {note}"

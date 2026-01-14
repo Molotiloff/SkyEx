@@ -164,22 +164,20 @@ class CashRequestsHandler:
         req_id = random.randint(10_000_000, 99_999_999)
         pin_code = f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
-        def _fmt_person(tag: str) -> str:
-            return f"<code>{html.escape(tag)}</code>" if tag.startswith("+") else html.escape(tag)
-
         # --- Формируем общий текст заявки ---
         base_lines = [
-            f"Заявка: <code>{req_id}</code>",
+            f"<b>Заявка</b>: <code>{req_id}</code>",
+            f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
             "-----",
-            f"Сумма: <code>{pretty_amount} {code.lower()}</code>",
-            f"Выдает: {_fmt_person(tg_from)}",
+            f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
+            f"<b>Выдает</b>: {tg_from}",
         ]
         if tg_to:
-            base_lines.append(f"Принимает: {_fmt_person(tg_to)}")
+            base_lines.append(f"<b>Принимает</b>: {tg_to}")
         # теперь КОД после строки "Принимает"
-        base_lines.append(f"Код: <tg-spoiler>{pin_code}</tg-spoiler>")
+        base_lines.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
         if comment:
-            base_lines += ["----", f"❗️Комментарий: <code>{html.escape(comment)}</code>"]
+            base_lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
 
         text_client = "\n".join(base_lines)
 
@@ -189,7 +187,7 @@ class CashRequestsHandler:
             for line in base_lines
         ]
         kind_ru = "Деп" if kind == "dep" else "Выд"
-        base_lines_for_req.append(f"Тип: <b>{kind_ru}</b>")
+        base_lines_for_req.append(f"<b>Тип</b>: <b>{kind_ru}</b>")
         text_req = "\n".join(base_lines_for_req)
 
         # 1) клиенту
