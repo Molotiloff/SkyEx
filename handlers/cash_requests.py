@@ -46,7 +46,7 @@ _RE_LINE_AMOUNT = re.compile(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*
 
 # legacy-маркеры
 _RE_KIND_DEP_LEGACY = re.compile(r"Код\s+получения", re.IGNORECASE)
-_RE_KIND_WD_LEGACY  = re.compile(r"Код\s+выдачи", re.IGNORECASE)
+_RE_KIND_WD_LEGACY = re.compile(r"Код\s+выдачи", re.IGNORECASE)
 
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 
@@ -80,18 +80,18 @@ class CashRequestsHandler:
       /депр|депт|депд|депе|депб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
       /выдр|выдт|выдд|выде|выдб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
 
-    • В чат клиента: полная заявка + спойлер на код + кнопка «Выдано».
-    • В заявочный чат: полная заявка БЕЗ спойлера (тот же текст), без кнопки.
+    • В чат клиента: полная заявка + спойлер на код + кнопка «Выдано», БЕЗ строки «Клиент».
+    • В заявочный чат: полная заявка БЕЗ спойлера, СО строкой «Клиент», без кнопки.
     • На «Выдано» — проводим операцию по кошельку и показываем баланс по валюте.
     """
 
     def __init__(
-            self,
-            repo: Repo,
-            *,
-            admin_chat_ids: Iterable[int] | None = None,
-            admin_user_ids: Iterable[int] | None = None,
-            request_chat_id: int | None = None,
+        self,
+        repo: Repo,
+        *,
+        admin_chat_ids: Iterable[int] | None = None,
+        admin_user_ids: Iterable[int] | None = None,
+        request_chat_id: int | None = None,
     ) -> None:
         self.repo = repo
         self.admin_chat_ids = set(admin_chat_ids or [])
@@ -109,9 +109,10 @@ class CashRequestsHandler:
     async def _cmd_cash_req(self, message: Message) -> None:
         # доступ: менеджер / админ / админский чат
         if not await require_manager_or_admin_message(
-                self.repo, message,
-                admin_chat_ids=self.admin_chat_ids,
-                admin_user_ids=self.admin_user_ids,
+            self.repo,
+            message,
+            admin_chat_ids=self.admin_chat_ids,
+            admin_user_ids=self.admin_user_ids,
         ):
             return
 
@@ -164,40 +165,45 @@ class CashRequestsHandler:
         req_id = random.randint(10_000_000, 99_999_999)
         pin_code = f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
-        # --- Формируем общий текст заявки ---
-        base_lines = [
+        # --- Общая часть заявки (без строки "Клиент") ---
+        base_lines_common = [
             f"<b>Заявка</b>: <code>{req_id}</code>",
-            f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
             f"<b>Выдает</b>: {tg_from}",
         ]
         if tg_to:
-            base_lines.append(f"<b>Принимает</b>: {tg_to}")
-        # теперь КОД после строки "Принимает"
-        base_lines.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
+            base_lines_common.append(f"<b>Принимает</b>: {tg_to}")
+
+        # код всегда после строки "Принимает" (или после "Выдает", если "Принимает" нет)
+        base_lines_common.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
+
         if comment:
-            base_lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
+            base_lines_common += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
 
-        text_client = "\n".join(base_lines)
+        # 1) клиенту — БЕЗ "Клиент", со spoiler
+        text_client = "\n".join(base_lines_common)
 
-        # Заявочный чат — без спойлера, с типом
+        # 2) заявочный чат — С "Клиент", БЕЗ spoiler, + тип
+        base_lines_for_req = [
+            f"<b>Заявка</b>: <code>{req_id}</code>",
+            f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
+            *base_lines_common,
+        ]
         base_lines_for_req = [
             line.replace(f"<tg-spoiler>{pin_code}</tg-spoiler>", pin_code)
-            for line in base_lines
+            for line in base_lines_for_req
         ]
         kind_ru = "Деп" if kind == "dep" else "Выд"
         base_lines_for_req.append(f"<b>Тип</b>: <b>{kind_ru}</b>")
         text_req = "\n".join(base_lines_for_req)
 
-        # 1) клиенту
         await message.answer(
             text_client,
             parse_mode="HTML",
             reply_markup=_issue_keyboard_with_kind(kind=kind, req_id=req_id),
         )
 
-        # 2) в заявочный чат
         if self.request_chat_id:
             try:
                 await message.bot.send_message(
@@ -216,7 +222,8 @@ class CashRequestsHandler:
 
         # доступ по сообщению
         if not await require_manager_or_admin_message(
-            self.repo, msg,
+            self.repo,
+            msg,
             admin_chat_ids=self.admin_chat_ids,
             admin_user_ids=self.admin_user_ids,
         ):
@@ -241,11 +248,13 @@ class CashRequestsHandler:
                     op_kind = maybe_kind
         except Exception:
             op_kind = None
+
         if not op_kind:
             if _RE_KIND_DEP_LEGACY.search(text):
                 op_kind = "dep"
             elif _RE_KIND_WD_LEGACY.search(text):
                 op_kind = "wd"
+
         if not op_kind:
             await cq.answer("Не удалось распознать тип заявки.", show_alert=True)
             return
@@ -255,6 +264,7 @@ class CashRequestsHandler:
         if not m_amt:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
             return
+
         parsed = _parse_amount_code(m_amt.group(1))
         if not parsed:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
@@ -282,13 +292,21 @@ class CashRequestsHandler:
         try:
             if op_kind == "dep":
                 await self.repo.deposit(
-                    client_id=client_id, currency_code=code, amount=amount,
-                    comment="cash issue", source="cash_request", idempotency_key=idem,
+                    client_id=client_id,
+                    currency_code=code,
+                    amount=amount,
+                    comment="cash issue",
+                    source="cash_request",
+                    idempotency_key=idem,
                 )
             else:
                 await self.repo.withdraw(
-                    client_id=client_id, currency_code=code, amount=amount,
-                    comment="cash issue", source="cash_request", idempotency_key=idem,
+                    client_id=client_id,
+                    currency_code=code,
+                    amount=amount,
+                    comment="cash issue",
+                    source="cash_request",
+                    idempotency_key=idem,
                 )
         except Exception as e:
             await cq.message.answer(f"Не удалось провести операцию по кошельку: {e}")
