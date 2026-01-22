@@ -15,6 +15,8 @@ from handlers.managers import ManagersHandler
 from handlers.usdt_wallet import UsdtWalletHandler
 from middlewares.dedup import DedupMiddleware
 
+from handlers.office_cards import OfficeCardsHandler
+
 from db_asyncpg.pool import create_pool, close_pool
 from db_asyncpg.repo import Repo
 
@@ -25,6 +27,7 @@ from handlers.wallets import WalletsHandler
 from handlers.nonzero import NonZeroHandler
 from handlers.accept_short import AcceptShortHandler
 from utils.requests import get_request_router, get_issue_router
+from utils.offices import OFFICE_CARDS
 
 
 class BotApp:
@@ -69,8 +72,8 @@ class BotApp:
         # базовые
         self.start_handler = StartHandler(self.repo)
         self.calc_handler = CalcHandler()
-        self.pass_card_handler = PassCardHandler()
-        self.dp.include_router(self.pass_card_handler.router)
+        office_handler = OfficeCardsHandler(OFFICE_CARDS)
+        self.dp.include_router(office_handler.router)
         self.dp.include_router(debug_router)
 
         # остальные — с repo
