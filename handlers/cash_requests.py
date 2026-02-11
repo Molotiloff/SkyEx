@@ -31,12 +31,12 @@ CMD_MAP = {
 PART = r"(?:@[A-Za-z0-9_]{2,}|\+\d{6,15})"
 
 # Формат:
-# /депр|... <amount_expr> <who_from(@|+)> [who_to(@|+)] [! comment]
+# /депр|... <amount_expr> <contact1> [contact2] [! comment]
 RE_CMD = re.compile(
     rf"""^/(депр|депт|депд|депе|депб|выдр|выдт|выдд|выде|выдб)(?:@\w+)?   # команда
-         \s+(.+?)                                                         # сумма/expr (лениво)
-         \s+({PART})                                                      # кто приносит
-         (?:\s+({PART}))?                                                 # [кто примет]
+         \s+(.+?)                                                         # сумма/expr
+         \s+({PART})                                                      # contact1
+         (?:\s+({PART}))?                                                 # [contact2]
          (?:\s*!\s*(.+))?                                                 # [! комментарий]
          \s*$""",
     flags=re.IGNORECASE | re.UNICODE | re.VERBOSE,
@@ -87,8 +87,12 @@ def _issue_keyboard_with_kind(kind: str, req_id: int) -> InlineKeyboardMarkup:
 class CashRequestsHandler:
     """
     Универсальные заявки наличных:
-      /депр|депт|депд|депе|депб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
-      /выдр|выдт|выдд|выде|выдб <сумма/expr> <@или+кто_принесёт> [@или+кто_примет] [! комментарий]
+      /депр|депт|депд|депе|депб <сумма/expr> <контакт1> [контакт2] [! комментарий]
+      /выдр|выдт|выдд|выде|выдб <сумма/expr> <контакт1> [контакт2] [! комментарий]
+
+    Семантика контактов:
+      • dep*: contact1 = Принимает, contact2 = Выдает (опционально)
+      • wd*: contact1 = Выдает, contact2 = Принимает (опционально)
 
     • В чат клиента: полная заявка + спойлер на код + кнопка «Выдано», БЕЗ строки «Клиент».
     • В заявочный чат: полная заявка БЕЗ спойлера, СО строкой «Клиент», без кнопки.
@@ -118,6 +122,21 @@ class CashRequestsHandler:
         self.router.message.register(self._cmd_cash_req, F.text.regexp(RE_CMD.pattern))
         self.router.callback_query.register(self._cb_issue_done, F.data.startswith(CB_ISSUE_DONE))
 
+    @staticmethod
+    def _split_contacts(kind: str, contact1: str, contact2: str) -> tuple[str, str]:
+        """
+        Возвращает (tg_from, tg_to)
+          tg_from = "Выдает"
+          tg_to   = "Принимает"
+        """
+        if kind == "dep":
+            tg_to = contact1
+            tg_from = contact2
+        else:  # kind == "wd"
+            tg_from = contact1
+            tg_to = contact2
+        return tg_from.strip(), tg_to.strip()
+
     async def _cmd_cash_req(self, message: Message) -> None:
         # доступ: менеджер / админ / админский чат
         if not await require_manager_or_admin_message(
@@ -133,9 +152,10 @@ class CashRequestsHandler:
         if not m:
             await message.answer(
                 "Форматы:\n"
-                "• /депр|депт|депд|депе|депб <сумма/expr> <Выдает> [Принимает] [! комментарий]\n"
+                "• /депр|депт|депд|депе|депб <сумма/expr> <Принимает> [Выдает] [! комментарий]\n"
                 "• /выдр|выдт|выдд|выде|выдб <сумма/expr> <Выдает> [Принимает] [! комментарий]\n"
-                "Напр.: /депр 150000 @vasya_courier @petya_cashier ! курс по договору\n"
+                "Напр.: /депр 150000 @petya_cashier @vasya_courier ! курс по договору\n"
+                "       /депр 150000 @petya_cashier\n"
                 "       /выдр (700+300) +79995556677 ! выдать у офиса\n\n"
                 "Редактирование контактов:\n"
                 "• ответьте этой же командой на карточку БОТА с заявкой — код/сумма не изменятся."
@@ -144,14 +164,16 @@ class CashRequestsHandler:
 
         cmd = m.group(1).lower()
         amount_expr = m.group(2).strip()
-        tg_from = m.group(3).strip()
-        tg_to = (m.group(4) or "").strip()
+        contact1 = (m.group(3) or "").strip()
+        contact2 = (m.group(4) or "").strip()
         comment = (m.group(5) or "").strip()
 
         kind, code = CMD_MAP.get(cmd, (None, None))
         if not kind or not code:
             await message.answer("Не распознал команду/валюту.")
             return
+
+        tg_from, tg_to = self._split_contacts(kind, contact1, contact2)
 
         # === РЕДАКТИРОВАНИЕ (ответом на карточку БОТА) ===
         reply_msg = getattr(message, "reply_to_message", None)
@@ -183,7 +205,7 @@ class CashRequestsHandler:
             amount_raw_old, code_old = parsed_old
             code_old = code_old.upper()
 
-            # запрет на смену валюты/типа через редактирование (во избежание путаницы)
+            # запрет на смену валюты через редактирование
             if code_old != code:
                 await message.answer(
                     f"Нельзя менять валюту при редактировании.\n"
@@ -210,10 +232,11 @@ class CashRequestsHandler:
                 f"<b>Заявка</b>: <code>{req_id}</code>",
                 "-----",
                 f"<b>Сумма</b>: <code>{pretty_amount} {code_old.lower()}</code>",
-                f"<b>Выдает</b>: {tg_from}",
             ]
             if tg_to:
                 lines_client.append(f"<b>Принимает</b>: {tg_to}")
+            if tg_from:
+                lines_client.append(f"<b>Выдает</b>: {tg_from}")
             lines_client.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
             if comment:
                 lines_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
@@ -225,10 +248,11 @@ class CashRequestsHandler:
                 f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
                 f"<b>Сумма</b>: <code>{pretty_amount} {code_old.lower()}</code>",
-                f"<b>Выдает</b>: {tg_from}",
             ]
             if tg_to:
                 lines_req.append(f"<b>Принимает</b>: {tg_to}")
+            if tg_from:
+                lines_req.append(f"<b>Выдает</b>: {tg_from}")
             lines_req.append(f"<b>Код</b>: {pin_code}")
             if comment:
                 lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
@@ -245,7 +269,6 @@ class CashRequestsHandler:
                     reply_markup=_issue_keyboard_with_kind(kind=kind, req_id=req_id),
                 )
             except TelegramBadRequest as e:
-                # "message is not modified" — не считаем ошибкой
                 if "message is not modified" not in str(e).lower():
                     await message.answer(f"Не удалось отредактировать заявку: {e}")
                     return
@@ -298,10 +321,11 @@ class CashRequestsHandler:
             f"<b>Заявка</b>: <code>{req_id}</code>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
-            f"<b>Выдает</b>: {tg_from}",
         ]
         if tg_to:
             lines_client.append(f"<b>Принимает</b>: {tg_to}")
+        if tg_from:
+            lines_client.append(f"<b>Выдает</b>: {tg_from}")
         lines_client.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
         if comment:
             lines_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
@@ -313,10 +337,11 @@ class CashRequestsHandler:
             f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
-            f"<b>Выдает</b>: {tg_from}",
         ]
         if tg_to:
             lines_req.append(f"<b>Принимает</b>: {tg_to}")
+        if tg_from:
+            lines_req.append(f"<b>Выдает</b>: {tg_from}")
         lines_req.append(f"<b>Код</b>: {pin_code}")
         if comment:
             lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
