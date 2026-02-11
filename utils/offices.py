@@ -7,7 +7,7 @@ from handlers.office_cards import OfficeCard
 OFFICE_CARDS: dict[str, OfficeCard] = {
     "екб": OfficeCard(
         command="екб",
-        photo_file_id=None,
+        photo_file_id="AgACAgIAAyEGAATT2G0dAAObaYl-f3rUjrGP94zHaQhcZEckLgEAAtwQaxvhBFBICMf2mvVQ6e4BAAMCAAN5AAM6BA",
         image_path=Path("images/ekb_office.jpeg"),
         caption=(
             "📍 БЦ «Высоцкий»\n"
@@ -20,7 +20,7 @@ OFFICE_CARDS: dict[str, OfficeCard] = {
     ),
     "члб": OfficeCard(
         command="члб",
-        photo_file_id=None,
+        photo_file_id="AgACAgIAAxkDAAKYrWmMQKUDobJM7d5iXuiELE3S-QR6AAJsFWsbK2hgSNNw9YSoO8ibAQADAgADeQADOgQ",
         image_path=Path("images/chlb_office.jpg"),
         caption=(
             "📍 <b>Адрес офиса:</b>\n"
