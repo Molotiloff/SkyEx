@@ -62,4 +62,4 @@ class OfficeCardsHandler:
             return
 
         photo = FSInputFile(card.image_path)
-        await message.answer_photo(photo=photo, caption=card.caption)
+        await message.answer_photo(photo=photo, caption=card.caption, parse_mode="HTML")
