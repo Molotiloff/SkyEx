@@ -1,5 +1,6 @@
 # handlers/wallets.py
 import html
+import logging
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from typing import Iterable
 
@@ -15,13 +16,15 @@ from utils.auth import (
     require_manager_or_admin_callback,
 )
 from utils.calc import evaluate, CalcError
-from utils.city_cash_transfer import city_cash_transfer_to_client
 from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core, format_amount_with_sign
 from utils.info import get_chat_name
 from utils.locks import chat_locks
 from utils.statements import statements_kb, handle_stmt_callback
 from utils.undos import undo_registry
+from utils.city_cash_transfer import city_cash_transfer_to_client
+
+log = logging.getLogger("wallets")
 
 
 def undo_kb(code: str, sign: str, amount_str: str) -> InlineKeyboardMarkup:
@@ -200,13 +203,13 @@ class WalletsHandler:
         if message.from_user and message.bot and message.from_user.id == message.bot.id:
             return
 
-        # --- НОВОЕ: глушим валютные команды в «заявочных» (или иных) чатах ---
+        # --- глушим валютные команды в указанных чатах ---
         if message.chat and message.chat.id in self.ignore_chat_ids:
             return
 
         if not await require_manager_or_admin_message(
-                self.repo, message,
-                admin_chat_ids=self.admin_chat_ids, admin_user_ids=self.admin_user_ids
+            self.repo, message,
+            admin_chat_ids=self.admin_chat_ids, admin_user_ids=self.admin_user_ids
         ):
             return
 
@@ -233,7 +236,9 @@ class WalletsHandler:
             await message.answer("Сумма не указана. Пример: /USD 250")
             return
 
-        # хвост после expr (там будет либо обычный комментарий, либо 'client_name [! comment]' для кассы)
+        # хвост после expr:
+        #  - обычный чат: комментарий целиком
+        #  - касса города: "<точное имя клиента> [! comment]"
         first_token = expr_full.strip().split(maxsplit=1)[0]
         tail = expr_full[len(first_token):].strip()
 
@@ -255,10 +260,19 @@ class WalletsHandler:
         extra_comment = ""
 
         if is_city_cash:
-            # tail => "<точное имя клиента> [! comment]"
             client_name_for_transfer, extra_comment = _split_city_transfer_tail(tail)
         else:
             extra_comment = tail
+
+        # ✅ логи входа (важно для фото/caption)
+        log.info(
+            "currency_change: chat_id=%s chat_name=%r msg_id=%s code=%s expr=%r amount=%s is_city_cash=%s "
+            "client_name=%r extra_comment=%r has_photo=%s has_caption=%s",
+            chat_id, chat_name, message.message_id,
+            code, expr, str(amount),
+            is_city_cash, client_name_for_transfer, extra_comment,
+            bool(message.photo), bool(message.caption),
+        )
 
         async with chat_locks.for_chat(chat_id):
             try:
@@ -272,7 +286,7 @@ class WalletsHandler:
                     )
                     return
 
-                precision = int(acc["precision"])
+                precision = int(acc["precision"]) if acc.get("precision") is not None else 2
                 q = Decimal(10) ** -precision
                 delta_quant = amount.copy_abs().quantize(q, rounding=ROUND_HALF_UP)
 
@@ -321,18 +335,24 @@ class WalletsHandler:
                     reply_markup=undo_kb(code, sign_flag, amt_str),
                 )
 
-                # 2) НОВОЕ: касса города → дублируем операцию + фото в чат клиента + показываем новый баланс клиента
+                # 2) касса города → дублируем операцию + фото в чат клиента + баланс клиента
                 if is_city_cash and client_name_for_transfer:
+                    log.info(
+                        "city_transfer: src_chat_id=%s src_msg_id=%s -> client_name=%r code=%s expr=%r amount=%s",
+                        chat_id, message.message_id, client_name_for_transfer, code, expr, str(amount),
+                    )
                     res = await city_cash_transfer_to_client(
                         repo=self.repo,
                         bot=message.bot,
                         src_message=message,
                         currency_code=code,
-                        amount_signed=amount,  # ✅ со знаком (+/-), хелпер сам квантит под точность клиента
-                        amount_expr=expr,  # ✅ ровно expr (без хвоста)
+                        amount_signed=amount,   # ✅ со знаком (+/-)
+                        amount_expr=expr,       # ✅ ровно expr
                         client_name_exact=client_name_for_transfer,
                         extra_comment=extra_comment,
                     )
+                    log.info("city_transfer result: %s", res)
+
                     if not res.ok:
                         await message.answer(res.error or "⚠️ Не удалось продублировать операцию в чат клиента.")
                         return
@@ -340,8 +360,10 @@ class WalletsHandler:
                     await message.answer("✅ Продублировал в чат клиента (фото + операция + новый баланс).")
 
             except WalletError as we:
+                log.exception("WalletError in _on_currency_change chat_id=%s msg_id=%s", chat_id, message.message_id)
                 await message.answer(f"Ошибка: {we}")
             except Exception as e:
+                log.exception("Exception in _on_currency_change chat_id=%s msg_id=%s", chat_id, message.message_id)
                 await message.answer(f"Не удалось обработать операцию: {e}")
 
     async def _cb_rmcur(self, cq: CallbackQuery) -> None:
