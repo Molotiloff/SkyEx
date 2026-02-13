@@ -44,16 +44,21 @@ class Repo:
     async def update_client_chat_id(self, *, client_id: int, new_chat_id: int) -> None:
         pool = await get_pool()
         async with pool.acquire() as con:
-            await con.execute(
-                "UPDATE clients SET chat_id=$1 WHERE id=$2",
-                int(new_chat_id), int(client_id),
-            )
+            async with con.transaction():
+                # Если вдруг новый chat_id уже занят другой записью — лучше явно упасть с понятной ошибкой.
+                exist = await con.fetchrow(
+                    "SELECT id FROM clients WHERE chat_id=$1 AND id<>$2",
+                    int(new_chat_id), int(client_id),
+                )
+                if exist:
+                    raise ValueError(f"chat_id {new_chat_id} already belongs to client_id={exist['id']}")
+
+                await con.execute(
+                    "UPDATE clients SET chat_id=$1 WHERE id=$2",
+                    int(new_chat_id), int(client_id),
+                )
 
     async def find_client_by_name_exact(self, name: str) -> dict[str, Any] | None:
-        """
-        Ищем активного клиента по ТОЧНОМУ совпадению clients.name.
-        Кассир вставляет имя из строки 'Клиент: ...' => матч должен быть exact.
-        """
         pool = await get_pool()
         async with pool.acquire() as con:
             row = await con.fetchrow(
