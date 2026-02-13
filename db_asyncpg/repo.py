@@ -41,6 +41,25 @@ class Repo:
     """
 
     # ---------- Клиенты ----------
+    async def find_client_by_name_exact(self, name: str) -> dict[str, Any] | None:
+        """
+        Ищем активного клиента по ТОЧНОМУ совпадению clients.name.
+        Кассир вставляет имя из строки 'Клиент: ...' => матч должен быть exact.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            row = await con.fetchrow(
+                """
+                SELECT id, chat_id, name, city
+                FROM clients
+                WHERE is_active = TRUE
+                  AND name = $1
+                LIMIT 1
+                """,
+                name.strip(),
+            )
+            return dict(row) if row else None
+
     async def ensure_client(self, chat_id: int, name: str, city: str | None = None) -> int:
         pool = await get_pool()
         async with pool.acquire() as con:

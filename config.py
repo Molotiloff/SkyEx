@@ -3,6 +3,12 @@ import os
 from dataclasses import dataclass
 
 
+def _parse_ids(s: str | None) -> set[int]:
+    if not s:
+        return set()
+    return {int(x.strip()) for x in s.split(",") if x.strip()}
+
+
 @dataclass
 class Config:
     bot_token: str
@@ -11,6 +17,7 @@ class Config:
     admin_ids: list[int]
     request_chat_id: int | None
     cash_chat_id: int | None
+    city_cash_chat_ids: set[int]
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -38,6 +45,7 @@ class Config:
 
         cash_chat_env = os.getenv("CASH_CHAT_ID", "").strip()
         cash_chat_id = int(cash_chat_env) if cash_chat_env else None
+        city_cash_chat_ids = _parse_ids(os.getenv("CITY_CASH_CHAT_IDS"))
 
         return cls(
             bot_token=token,
@@ -45,5 +53,6 @@ class Config:
             admin_chat_id=admin_chat_id,
             admin_ids=admin_ids,
             request_chat_id=request_chat_id,
-            cash_chat_id=cash_chat_id
+            cash_chat_id=cash_chat_id,
+            city_cash_chat_ids=city_cash_chat_ids
         )

@@ -18,6 +18,12 @@ from utils.auth import require_manager_or_admin_message
 from utils.calc import evaluate, CalcError
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
+from utils.request_audit import (
+    make_audit_for_new,
+    make_audit_for_edit,
+    audit_lines_for_request_chat,
+    audit_lines_for_client_card,
+)
 
 # команды → (тип, валюта)
 CMD_MAP = {
@@ -45,8 +51,11 @@ RE_CMD = re.compile(
 # "Сумма: <code>150 000 rub</code>"
 _RE_LINE_AMOUNT = re.compile(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M)
 
-# Номер заявки
-_RE_REQ_ID = re.compile(r"^\s*Заявка:\s*(?:<code>)?(\d+)(?:</code>)?\s*$", re.IGNORECASE | re.M)
+# Номер заявки (поддерживаем и старый "Заявка:" и новый "Заявка на внесение/выдачу:")
+_RE_REQ_ID = re.compile(
+    r"^\s*Заявка(?:\s+на\s+(?:внесение|выдачу))?\s*:\s*(?:<code>)?(\d+)(?:</code>)?\s*$",
+    re.IGNORECASE | re.M,
+)
 
 # Код: может быть со spoiler или без
 _RE_LINE_PIN = re.compile(
@@ -84,6 +93,11 @@ def _issue_keyboard_with_kind(kind: str, req_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def _req_title(kind: str) -> str:
+    # kind: "dep" | "wd"
+    return "Заявка на внесение" if kind == "dep" else "Заявка на выдачу"
+
+
 class CashRequestsHandler:
     """
     Универсальные заявки наличных:
@@ -92,13 +106,7 @@ class CashRequestsHandler:
 
     Семантика контактов:
       • dep*: contact1 = Принимает, contact2 = Выдает (опционально)
-      • wd*: contact1 = Выдает, contact2 = Принимает (опционально)
-
-    • В чат клиента: полная заявка + спойлер на код + кнопка «Выдано», БЕЗ строки «Клиент».
-    • В заявочный чат: полная заявка БЕЗ спойлера, СО строкой «Клиент», без кнопки.
-    • Редактирование контактов: отправьте команду ответом на карточку БОТА — поменяются Выдает/Принимает/Комментарий,
-      но сумма/валюта/код/req_id останутся прежними.
-    • На «Выдано» — проводим операцию по кошельку и показываем баланс по валюте.
+      • wd*:  contact1 = Выдает,    contact2 = Принимает (опционально)
     """
 
     def __init__(
@@ -138,7 +146,6 @@ class CashRequestsHandler:
         return tg_from.strip(), tg_to.strip()
 
     async def _cmd_cash_req(self, message: Message) -> None:
-        # доступ: менеджер / админ / админский чат
         if not await require_manager_or_admin_message(
             self.repo,
             message,
@@ -173,6 +180,7 @@ class CashRequestsHandler:
             await message.answer("Не распознал команду/валюту.")
             return
 
+        title = _req_title(kind)
         tg_from, tg_to = self._split_contacts(kind, contact1, contact2)
 
         # === РЕДАКТИРОВАНИЕ (ответом на карточку БОТА) ===
@@ -185,6 +193,7 @@ class CashRequestsHandler:
         )
         if is_reply_to_bot:
             old_text = reply_msg.text or ""
+
             m_req = _RE_REQ_ID.search(old_text)
             m_pin = _RE_LINE_PIN.search(old_text)
             m_amt = _RE_LINE_AMOUNT.search(old_text)
@@ -194,6 +203,8 @@ class CashRequestsHandler:
                     "Ответьте именно на сообщение БОТА с заявкой."
                 )
                 return
+
+            audit = make_audit_for_edit(message, old_text=old_text)
 
             req_id = int(m_req.group(1))
             pin_code = m_pin.group(1)
@@ -205,7 +216,6 @@ class CashRequestsHandler:
             amount_raw_old, code_old = parsed_old
             code_old = code_old.upper()
 
-            # запрет на смену валюты через редактирование
             if code_old != code:
                 await message.answer(
                     f"Нельзя менять валюту при редактировании.\n"
@@ -227,9 +237,8 @@ class CashRequestsHandler:
             amount_old = amount_raw_old.quantize(q).quantize(Decimal("1"))
             pretty_amount = format_amount_core(amount_old, prec)
 
-            # клиенту — БЕЗ "Клиент", со spoiler
             lines_client = [
-                f"<b>Заявка</b>: <code>{req_id}</code>",
+                f"<b>{title}</b>: <code>{req_id}</code>",
                 "-----",
                 f"<b>Сумма</b>: <code>{pretty_amount} {code_old.lower()}</code>",
             ]
@@ -240,11 +249,13 @@ class CashRequestsHandler:
             lines_client.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
             if comment:
                 lines_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
+            lines_client += audit_lines_for_client_card(audit)
             text_client = "\n".join(lines_client)
 
-            # заявочный чат — С "Клиент", БЕЗ spoiler, + пометка изменения + тип
             lines_req = [
-                f"<b>Заявка</b>: <code>{req_id}</code>",
+                "⚠️ <b>Внимание: заявка изменена.</b>",
+                "",
+                f"<b>{title}</b>: <code>{req_id}</code>",
                 f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
                 f"<b>Сумма</b>: <code>{pretty_amount} {code_old.lower()}</code>",
@@ -258,6 +269,7 @@ class CashRequestsHandler:
                 lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
             kind_ru = "Деп" if kind == "dep" else "Выд"
             lines_req += ["----", "✏️ <b>Изменение контактов</b>", f"<b>Тип</b>: <b>{kind_ru}</b>"]
+            lines_req += audit_lines_for_request_chat(audit)
             text_req = "\n".join(lines_req)
 
             try:
@@ -299,6 +311,8 @@ class CashRequestsHandler:
             await message.answer(f"Ошибка в выражении суммы: {e}")
             return
 
+        audit = make_audit_for_new(message)
+
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
@@ -316,9 +330,8 @@ class CashRequestsHandler:
         req_id = random.randint(10_000_000, 99_999_999)
         pin_code = f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
-        # 1) клиенту — БЕЗ "Клиент", со spoiler
         lines_client = [
-            f"<b>Заявка</b>: <code>{req_id}</code>",
+            f"<b>{title}</b>: <code>{req_id}</code>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
         ]
@@ -329,11 +342,11 @@ class CashRequestsHandler:
         lines_client.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
         if comment:
             lines_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
+        lines_client += audit_lines_for_client_card(audit)
         text_client = "\n".join(lines_client)
 
-        # 2) заявочный чат — С "Клиент", БЕЗ spoiler, + тип
         lines_req = [
-            f"<b>Заявка</b>: <code>{req_id}</code>",
+            f"<b>{title}</b>: <code>{req_id}</code>",
             f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
@@ -347,6 +360,7 @@ class CashRequestsHandler:
             lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
         kind_ru = "Деп" if kind == "dep" else "Выд"
         lines_req.append(f"<b>Тип</b>: <b>{kind_ru}</b>")
+        lines_req += audit_lines_for_request_chat(audit)
         text_req = "\n".join(lines_req)
 
         await message.answer(
@@ -371,7 +385,6 @@ class CashRequestsHandler:
             await cq.answer()
             return
 
-        # доступ по сообщению
         if not await require_manager_or_admin_message(
             self.repo,
             msg,
@@ -383,13 +396,11 @@ class CashRequestsHandler:
 
         text = msg.text or ""
 
-        # убираем клавиатуру (анти-даблклик)
         try:
             await msg.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
 
-        # тип операции из callback_data (или legacy)
         op_kind: Optional[str] = None
         try:
             parts = (cq.data or "").split(":")
@@ -410,7 +421,6 @@ class CashRequestsHandler:
             await cq.answer("Не удалось распознать тип заявки.", show_alert=True)
             return
 
-        # сумма/валюта
         m_amt = _RE_LINE_AMOUNT.search(text)
         if not m_amt:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
@@ -424,7 +434,6 @@ class CashRequestsHandler:
         amount_raw, code = parsed
         code = code.upper()
 
-        # кошелёк клиента и квантование
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
@@ -464,7 +473,6 @@ class CashRequestsHandler:
             await cq.answer()
             return
 
-        # показать текущий баланс по валюте
         accounts2 = await self.repo.snapshot_wallet(client_id)
         acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)
         cur_bal = Decimal(str(acc2["balance"])) if acc2 else Decimal("0")

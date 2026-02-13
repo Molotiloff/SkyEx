@@ -1,5 +1,6 @@
 import asyncio
 import logging
+
 from aiogram import Bot, Dispatcher
 
 from config import Config
@@ -39,8 +40,9 @@ class BotApp:
         admin_user_list = self.config.admin_ids if self.config.admin_ids else None
         request_chat_id = self.config.request_chat_id
         cash_chat_id = self.config.cash_chat_id
+        city_cash_chat_ids = self.config.city_cash_chat_ids
 
-        # Чаты, где нужно игнорировать валютные команды типа "/USD 100"
+        # Чаты, где игнорируем валютные команды типа "/USD 100"
         ignore_chat_ids = {cid for cid in (request_chat_id, cash_chat_id) if cid}
 
         self.dp = Dispatcher()
@@ -79,13 +81,13 @@ class BotApp:
         # остальные — с repo
         self.nonzero_handler = NonZeroHandler(self.repo)
 
-        # WalletsHandler: тут регистрируется /кошелек
-        # Передаём ignore_chat_ids, чтобы там игнорились команды вида "/USD ..."
+        # WalletsHandler
         self.wallets_handler = WalletsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
             ignore_chat_ids=ignore_chat_ids,
+            city_cash_chat_ids=city_cash_chat_ids,
         )
 
         self.accept_short = AcceptShortHandler(
