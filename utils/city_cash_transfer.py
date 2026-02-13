@@ -11,6 +11,7 @@ from aiogram.types import Message
 from db_asyncpg.repo import Repo
 from utils.formatting import format_amount_core, format_amount_with_sign
 from utils.info import get_chat_name
+from utils.tg_migrate import send_with_migrate_retry
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +27,6 @@ class CityTransferResult:
 def _pick_photo_file_id(message: Message) -> Optional[str]:
     if not message.photo:
         return None
-    # последний — обычно самый большой
     return message.photo[-1].file_id
 
 
@@ -34,24 +34,13 @@ async def city_cash_transfer_to_client(
     *,
     repo: Repo,
     bot: Bot,
-    src_message: Message,          # сообщение кассира в кассе города (может содержать photo+caption)
-    currency_code: str,            # "RUB"/"USD"/...
-    amount_signed: Decimal,        # со знаком (+deposit / -withdraw) (НЕ квантованный для клиента)
-    amount_expr: str,              # строка expr, чтобы красиво собрать caption "/руб 10000 ..."
-    client_name_exact: str,        # точное имя клиента (как в строке "Клиент:")
-    extra_comment: str = "",       # хвост комментария (без expr), опционально
+    src_message: Message,
+    currency_code: str,
+    amount_signed: Decimal,
+    amount_expr: str,
+    client_name_exact: str,
+    extra_comment: str = "",
 ) -> CityTransferResult:
-    """
-    Дублирует операцию из кассы города в чат клиента:
-      - применяет депозит/вывод в кошельке клиента
-      - пересылает фото (file_id) с caption в формате команды
-      - отправляет отдельное сообщение с итогом и балансом (как обычная операция)
-
-    Требования к Repo:
-      - repo.find_client_by_name_exact(name) -> dict {id, chat_id, ...} | None
-      - repo.snapshot_wallet(client_id)
-      - repo.deposit/withdraw(...)
-    """
     # 1) найти клиента
     found = await repo.find_client_by_name_exact(client_name_exact)
     if not found:
@@ -65,7 +54,6 @@ async def city_cash_transfer_to_client(
 
     target_chat_id = int(found["chat_id"])
     target_client_id = int(found["id"])
-
     code = (currency_code or "").strip().upper()
 
     # 2) проверить, что у клиента есть счёт и взять точность
@@ -93,8 +81,7 @@ async def city_cash_transfer_to_client(
             target_client_id=target_client_id,
         )
 
-    # 3) применить операцию в кошельке клиента
-    # идемпотентность: одно сообщение кассы → одно дублирование в конкретный чат клиента
+    # 3) применить операцию в кошельке клиента (идемпотентность)
     idem2 = f"city_transfer:{src_message.chat.id}:{src_message.message_id}:to:{target_chat_id}"
 
     city_tag = get_chat_name(src_message)
@@ -113,7 +100,7 @@ async def city_cash_transfer_to_client(
             idempotency_key=idem2,
         )
         pretty_delta = format_amount_with_sign(delta_abs, target_prec, sign="+")
-        sign_for_caption = ""  # в caption лучше без "+", как обычные команды: "/руб 10000 ..."
+        sign_for_caption = ""   # "/руб 10000 ..."
     else:
         await repo.withdraw(
             client_id=target_client_id,
@@ -124,33 +111,49 @@ async def city_cash_transfer_to_client(
             idempotency_key=idem2,
         )
         pretty_delta = format_amount_with_sign(delta_abs, target_prec, sign="-")
-        sign_for_caption = "-"  # если хочешь поддержать вывод в caption
+        sign_for_caption = "-"  # если хочешь "/руб -10000 ..."
 
-    # 4) отправить фото/квитанцию в клиентский чат
+    # 4) отправить фото/квитанцию в клиентский чат (с migrate-retry)
     photo_file_id = _pick_photo_file_id(src_message)
 
-    # caption строго в формате команды (чтобы структура сохранилась)
-    #   /руб 10000 [коммент]
-    # для вывода можно сделать "/руб -10000", если нужно — оставил поддержкой sign_for_caption
     caption = f"/{code.lower()} {sign_for_caption}{amount_expr}".strip()
     if extra_comment:
         caption += f" {extra_comment}"
 
     if photo_file_id:
-        await bot.send_photo(chat_id=target_chat_id, photo=photo_file_id, caption=caption)
+        _, new_chat_id = await send_with_migrate_retry(
+            repo=repo,
+            client_id=target_client_id,
+            chat_id=target_chat_id,
+            send_call=lambda cid: bot.send_photo(chat_id=cid, photo=photo_file_id, caption=caption),
+        )
     else:
-        await bot.send_message(chat_id=target_chat_id, text=caption)
+        _, new_chat_id = await send_with_migrate_retry(
+            repo=repo,
+            client_id=target_client_id,
+            chat_id=target_chat_id,
+            send_call=lambda cid: bot.send_message(chat_id=cid, text=caption),
+        )
 
-    # 5) посчитать и отправить баланс клиента (как при обычной операции)
+    # если мигрировали — дальше работаем с новым id
+    if new_chat_id is not None:
+        target_chat_id = int(new_chat_id)
+
+    # 5) посчитать и отправить баланс клиента (тоже с migrate-retry)
     target_accounts2 = await repo.snapshot_wallet(target_client_id)
     target_acc2 = next((r for r in target_accounts2 if str(r["currency_code"]).upper() == code), None)
     target_bal = Decimal(str(target_acc2["balance"])) if target_acc2 else Decimal("0")
     target_prec2 = int(target_acc2["precision"]) if target_acc2 and target_acc2.get("precision") is not None else target_prec
     pretty_bal = format_amount_core(target_bal, target_prec2)
 
-    await bot.send_message(
+    await send_with_migrate_retry(
+        repo=repo,
+        client_id=target_client_id,
         chat_id=target_chat_id,
-        text=f"Запомнил. {pretty_delta}\nБаланс: {pretty_bal} {code.lower()}",
+        send_call=lambda cid: bot.send_message(
+            chat_id=cid,
+            text=f"Запомнил. {pretty_delta}\nБаланс: {pretty_bal} {code.lower()}",
+        ),
     )
 
     return CityTransferResult(

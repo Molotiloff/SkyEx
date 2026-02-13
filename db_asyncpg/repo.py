@@ -41,6 +41,14 @@ class Repo:
     """
 
     # ---------- Клиенты ----------
+    async def update_client_chat_id(self, *, client_id: int, new_chat_id: int) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            await con.execute(
+                "UPDATE clients SET chat_id=$1 WHERE id=$2",
+                int(new_chat_id), int(client_id),
+            )
+
     async def find_client_by_name_exact(self, name: str) -> dict[str, Any] | None:
         """
         Ищем активного клиента по ТОЧНОМУ совпадению clients.name.
