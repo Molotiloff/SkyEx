@@ -347,7 +347,7 @@ class CashRequestsHandler:
 
         lines_req = [
             f"<b>{title}</b>: <code>{req_id}</code>",
-            f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
+            f"<b>Клиент</b>: <code>{html.escape(chat_name)}</code>",
             "-----",
             f"<b>Сумма</b>: <code>{pretty_amount} {code.lower()}</code>",
         ]
