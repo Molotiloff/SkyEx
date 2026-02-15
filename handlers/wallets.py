@@ -357,7 +357,7 @@ class WalletsHandler:
                         await message.answer(res.error or "⚠️ Не удалось продублировать операцию в чат клиента.")
                         return
 
-                    await message.answer("✅ Продублировал в чат клиента (фото + операция + новый баланс).")
+                    await message.answer("✅ Транзакция проведена в чате у клиента!")
 
             except WalletError as we:
                 log.exception("WalletError in _on_currency_change chat_id=%s msg_id=%s", chat_id, message.message_id)

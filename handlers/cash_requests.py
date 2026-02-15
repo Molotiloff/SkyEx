@@ -267,8 +267,7 @@ class CashRequestsHandler:
             lines_req.append(f"<b>Код</b>: {pin_code}")
             if comment:
                 lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
-            kind_ru = "Деп" if kind == "dep" else "Выд"
-            lines_req += ["----", "✏️ <b>Изменение контактов</b>", f"<b>Тип</b>: <b>{kind_ru}</b>"]
+            lines_req += ["----", "✏️ <b>Изменение контактов</b>"]
             lines_req += audit_lines_for_request_chat(audit)
             text_req = "\n".join(lines_req)
 
@@ -358,8 +357,6 @@ class CashRequestsHandler:
         lines_req.append(f"<b>Код</b>: {pin_code}")
         if comment:
             lines_req += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
-        kind_ru = "Деп" if kind == "dep" else "Выд"
-        lines_req.append(f"<b>Тип</b>: <b>{kind_ru}</b>")
         lines_req += audit_lines_for_request_chat(audit)
         text_req = "\n".join(lines_req)
 

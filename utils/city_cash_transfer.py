@@ -8,7 +8,7 @@ from typing import Optional, Awaitable, Callable
 
 from aiogram import Bot
 from aiogram.types import Message
-from aiogram.exceptions import TelegramMigrateToChat, TelegramBadRequest
+from aiogram.exceptions import TelegramMigrateToChat
 
 from db_asyncpg.repo import Repo
 from utils.formatting import format_amount_core, format_amount_with_sign
