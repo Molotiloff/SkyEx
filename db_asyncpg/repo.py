@@ -67,6 +67,7 @@ class Repo:
                 FROM clients
                 WHERE is_active = TRUE
                   AND name = $1
+                ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,
                 name.strip(),
@@ -77,9 +78,10 @@ class Repo:
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
+                # 1) обычный путь: нашли по chat_id
                 row = await con.fetchrow(
                     "SELECT id, name, city, is_active FROM clients WHERE chat_id=$1",
-                    chat_id,
+                    int(chat_id),
                 )
                 if row:
                     need_update_nc = (name and row["name"] != name) or (city is not None and row["city"] != city)
@@ -93,24 +95,46 @@ class Repo:
                                 city = COALESCE($3, city)
                             WHERE id = $1
                             """,
-                            row["id"], name, city,
+                            int(row["id"]), name, city,
                         )
                     elif need_update_nc:
                         await con.execute(
                             "UPDATE clients SET name=COALESCE($2,name), city=COALESCE($3,city) WHERE id=$1",
-                            row["id"], name, city,
+                            int(row["id"]), name, city,
                         )
-                    return row["id"]
+                    return int(row["id"])
 
+                # 2) НОВОЕ: чат мог мигрировать, но имя клиента осталось тем же
+                #    (это лечит group->supergroup: старый chat_id перестал быть валиден)
+                by_name = await con.fetchrow(
+                    """
+                    SELECT id, chat_id, name, city, is_active
+                    FROM clients
+                    WHERE is_active = TRUE
+                      AND name = $1
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (name or "").strip(),
+                )
+                if by_name:
+                    # перепривязываем на новый chat_id
+                    await con.execute(
+                        "UPDATE clients SET chat_id=$1, city=COALESCE($2, city) WHERE id=$3",
+                        int(chat_id), city, int(by_name["id"]),
+                    )
+                    return int(by_name["id"])
+
+                # 3) иначе — создаём нового клиента
                 rec = await con.fetchrow(
                     """
                     INSERT INTO clients(chat_id, name, city)
                     VALUES($1, $2, $3)
                     RETURNING id
                     """,
-                    chat_id, name, city,
+                    int(chat_id), name, city,
                 )
-                return rec["id"]
+                return int(rec["id"])
 
     async def remove_client(self, chat_id: int) -> bool:
         pool = await get_pool()
