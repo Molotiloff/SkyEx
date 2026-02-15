@@ -23,7 +23,6 @@ from db_asyncpg.repo import Repo
 
 from handlers.start import StartHandler
 from handlers.calc import CalcHandler
-from handlers.pass_card import PassCardHandler
 from handlers.wallets import WalletsHandler
 from handlers.nonzero import NonZeroHandler
 from handlers.accept_short import AcceptShortHandler
