@@ -341,7 +341,6 @@ class CashRequestsHandler:
         lines_client.append(f"<b>Код</b>: <tg-spoiler>{pin_code}</tg-spoiler>")
         if comment:
             lines_client += ["----", f"<b>Комментарий</b>: <code>{html.escape(comment)}</code>❗️"]
-        lines_client += audit_lines_for_client_card(audit)
         text_client = "\n".join(lines_client)
 
         lines_req = [
