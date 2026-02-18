@@ -39,16 +39,46 @@ CMD_MAP = {
 
 # fx команды → ("fx", in_code, out_code)
 FX_CMD_MAP = {
+    # RUB - USD
     "првд": ("fx", "RUB", "USD"),
     "пдвр": ("fx", "USD", "RUB"),
+
+    # RUB - EUR
     "прве": ("fx", "RUB", "EUR"),
     "певр": ("fx", "EUR", "RUB"),
-    "пдве": ("fx", "USD", "EUR"),
-    "пбвр": ("fx", "USDW", "RUB"),
-    "ппвр": ("fx", "EUR500", "RUB"),
-    "првп": ("fx", "RUB", "EUR500"),
-}
 
+    # RUB - USDW
+    "првб": ("fx", "RUB", "USDW"),
+    "пбвр": ("fx", "USDW", "RUB"),
+
+    # RUB - EUR500
+    "првп": ("fx", "RUB", "EUR500"),
+    "ппвр": ("fx", "EUR500", "RUB"),
+
+    # USD - EUR
+    "пдве": ("fx", "USD", "EUR"),
+    "певд": ("fx", "EUR", "USD"),
+
+    # USD - USDW
+    "пдвб": ("fx", "USD", "USDW"),
+    "пбвд": ("fx", "USDW", "USD"),
+
+    # USD - EUR500
+    "пдвп": ("fx", "USD", "EUR500"),
+    "ппвд": ("fx", "EUR500", "USD"),
+
+    # EUR - USDW
+    "певб": ("fx", "EUR", "USDW"),
+    "пбве": ("fx", "USDW", "EUR"),
+
+    # EUR - EUR500
+    "певп": ("fx", "EUR", "EUR500"),
+    "ппве": ("fx", "EUR500", "EUR"),
+
+    # USDW - EUR500
+    "пбвп": ("fx", "USDW", "EUR500"),
+    "ппвб": ("fx", "EUR500", "USDW"),
+}
 # --- парсинг старых/новых карточек при редактировании/кнопке ---
 
 # req_id: поддержим и старый числовой, и новый "Б-123456"
