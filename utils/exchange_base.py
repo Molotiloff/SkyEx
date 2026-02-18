@@ -237,50 +237,41 @@ class AbstractExchangeHandler(ABC):
             # Нет реплая — это не редактирование, создаём новую заявку в вызывающем коде
             return False
 
-        # Разрешаем редактирование ТОЛЬКО если ответ на сообщение БОТА с карточкой
+        # Разрешаем редактирование ТОЛЬКО если это ответ на карточку БОТА
         if reply_msg.from_user and reply_msg.from_user.id == message.bot.id:
             mid = _RE_REQ_ID.search(reply_msg.text or "")
             if not mid:
                 await message.answer(
                     "Это сообщение бота не похоже на карточку заявки.\n"
-                    "Чтобы изменить заявку и пересчитать баланс, ответьте на сообщение БОТА с заявкой."
+                    "Чтобы изменить и пересчитать баланс, ответьте на сообщение БОТА с заявкой."
                 )
                 return True
             edit_req_id = mid.group(1)
             target_bot_msg_id = reply_msg.message_id
         else:
-            # Ответ НЕ боту:
-            # 1) Если это ответ на исходную команду (есть линк в индексе) — запрещаем.
+            # Ответ НЕ боту
             link = req_index.lookup(message.chat.id, reply_msg.message_id)
             if link is not None:
-                await message.answer(
-                    "Пожалуйста, ответьте на сообщение БОТА с карточкой заявки."
-                )
+                await message.answer("Пожалуйста, ответьте на сообщение БОТА с карточкой заявки.")
                 return True
-
-            # 2) Если выглядит как карточка (пересланная/чужая) — тоже запрещаем.
             if _RE_REQ_ID.search(reply_msg.text or ""):
                 await message.answer(
-                    "Похоже, вы ответили на пересланную или чужую карточку.\n"
-                    "Чтобы изменить заявку и пересчитать баланс, ответьте на оригинальное сообщение БОТА с заявкой."
+                    "Похоже, вы ответили на пересланную/чужую карточку.\n"
+                    "Ответьте на оригинальное сообщение БОТА с заявкой."
                 )
                 return True
-
-            # 3) Любой другой текст — просто инструкция.
-            await message.answer(
-                "Чтобы изменить заявку и пересчитать баланс, ответьте на сообщение БОТА с карточкой заявки."
-            )
+            await message.answer("Чтобы изменить заявку, ответьте на сообщение БОТА с карточкой заявки.")
             return True
 
-        # Дальше — обычное редактирование существующей карточки бота
+        # Дальше — нормальное редактирование
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
 
         pretty_recv = format_amount_core(recv_amount, recv_prec)
-        pretty_pay = format_amount_core(pay_amount, pay_prec)
+        pretty_pay = format_amount_core(pay_amount,  pay_prec)
 
-        # имя создателя — как раньше
+        # автор
         creator_name: str | None = None
         if reply_msg and reply_msg.text:
             m_created = _RE_CREATED_BY.search(reply_msg.text)
@@ -290,9 +281,9 @@ class AbstractExchangeHandler(ABC):
             u = getattr(message, "from_user", None)
             if u:
                 creator_name = (
-                        getattr(u, "full_name", None)
-                        or (f"@{u.username}" if getattr(u, "username", None) else None)
-                        or f"id:{u.id}"
+                    getattr(u, "full_name", None)
+                    or (f"@{u.username}" if getattr(u, "username", None) else None)
+                    or f"id:{u.id}"
                 )
         creator_name = creator_name or "unknown"
 
@@ -311,7 +302,6 @@ class AbstractExchangeHandler(ABC):
 
         did_recalc = False
         try:
-            # Есть старый текст карточки бота — применяем дельту с идемпотентностью
             did_recalc = await self.apply_edit_delta(
                 client_id=client_id,
                 old_request_text=reply_msg.text or "",

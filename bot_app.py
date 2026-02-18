@@ -38,11 +38,22 @@ class BotApp:
         admin_chat_list = [self.config.admin_chat_id] if self.config.admin_chat_id else None
         admin_user_list = self.config.admin_ids if self.config.admin_ids else None
         request_chat_id = self.config.request_chat_id
-        cash_chat_id = self.config.cash_chat_id
-        city_cash_chat_ids = self.config.city_cash_chat_ids
 
-        # Чаты, где игнорируем валютные команды типа "/USD 100"
-        ignore_chat_ids = {cid for cid in (request_chat_id, cash_chat_id) if cid}
+        # НОВОЕ: чаты заявок по городам
+        city_cash_chats = self.config.cash_chat_map           # dict[str,int]  (екб->chat_id, члб->chat_id, ...)
+        default_city = self.config.default_city                  # "екб"
+        city_cash_chat_ids = self.config.city_cash_chat_ids      # set[int] кассы города
+
+        # Чаты, где игнорируем валютные команды "/USD 100" (чтобы не ломать логику заявок и т.п.)
+        # сюда кладём:
+        # - общий request_chat_id (если есть)
+        # - все чаты заявок городов (city_cash_chats.values())
+        ignore_chat_ids = set()
+        if request_chat_id:
+            ignore_chat_ids.add(int(request_chat_id))
+        ignore_chat_ids.update(int(x) for x in city_cash_chats.values())
+
+        self.ignore_chat_ids = ignore_chat_ids  # чтобы логирование было корректным
 
         self.dp = Dispatcher()
 
@@ -101,7 +112,11 @@ class BotApp:
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
-            request_chat_id=cash_chat_id,
+            # НОВОЕ:
+            city_cash_chats=city_cash_chats,
+            default_city=default_city,
+            # можно оставить request_chat_id как общий/legacy, если хендлер это поддерживает
+            request_chat_id=request_chat_id,
         )
         self.dp.include_router(self.cash_requests.router)
 
@@ -143,7 +158,13 @@ class BotApp:
     async def run(self) -> None:
         logging.info("Connecting to Postgres…")
         await create_pool(self.config.database_url)
-        logging.info("Bot is starting…")
+        logging.info(
+            "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, city_cash_chat_ids=%s)",
+            self.config.request_chat_id,
+            self.config.cash_chat_map,
+            self.ignore_chat_ids,
+            self.config.city_cash_chat_ids,
+        )
         try:
             await self.dp.start_polling(self.bot)
         finally:
