@@ -115,28 +115,31 @@ def build_client_card_fx(data: CardDataFx) -> tuple[str, Optional[InlineKeyboard
     Формат:
       Заявка на обмен: <Номер>
       -----
-      Клиент: <contact2>
+      Клиент: +7XXXXXXXXXX / @username(контакт 2)
 
       Принимаем: 1 000 000 RUB
       Выдаем: 10 000 USD
 
-      Кассир: <contact1>
-      Код: <spoiler>
+      Кассир: @good_cashier(контакт 1)
+      Код: 688-742
     """
+    client_contact = data.tg_from.strip() if (data.tg_from or "").strip() else "—"
+    cashier = data.tg_to.strip() if (data.tg_to or "").strip() else "—"
+
     lines: list[str] = [
         f"<b>Заявка на обмен</b>: <code>{html.escape(data.req_id)}</code>",
-        f"<b>Город</b>: <code>{html.escape(data.city)}</code>",
         "-----",
-        f"<b>Клиент</b>: {html.escape(data.tg_from) if data.tg_from else '—'}",
+        f"<b>Клиент</b>: {html.escape(client_contact)}",
         "",
         f"<b>Принимаем</b>: <code>{html.escape(data.pretty_in)} {html.escape(data.in_code)}</code>",
         f"<b>Выдаем</b>: <code>{html.escape(data.pretty_out)} {html.escape(data.out_code)}</code>",
         "",
-        f"<b>Кассир</b>: {html.escape(data.tg_to) if data.tg_to else '—'}",
+        f"<b>Кассир</b>: {html.escape(cashier)}",
         f"<b>Код</b>: <tg-spoiler>{html.escape(data.pin_code)}</tg-spoiler>",
     ]
     if data.comment:
-        lines += ["", "----", f"<b>Комментарий</b>: {html.escape(data.comment)}"]
+        lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
+
     return "\n".join(lines), None
 
 
@@ -149,16 +152,18 @@ def build_city_card_fx(
 ) -> str:
     """
     FX в чат заявок города: с audit, код без spoiler.
-    Тот же формат, но в "Клиент" показываем chat_name (кто создал) + контакт2,
-    чтобы в заявочном чате было понятно, чей это запрос.
+    Клиент: <chat_name> / <контакт2>
+    Кассир: <контакт1>
     """
     lines: list[str] = []
     if changed_notice:
         lines += ["⚠️ <b>Внимание: заявка изменена.</b>", ""]
 
     client_line = html.escape(chat_name)
-    if data.tg_from:
-        client_line = f"{client_line} / {html.escape(data.tg_from)}"
+    if (data.tg_from or "").strip():
+        client_line = f"{client_line} / {html.escape(data.tg_from.strip())}"
+
+    cashier = data.tg_to.strip() if (data.tg_to or "").strip() else "—"
 
     lines += [
         f"<b>Заявка на обмен</b>: <code>{html.escape(data.req_id)}</code>",
@@ -168,12 +173,12 @@ def build_city_card_fx(
         f"<b>Принимаем</b>: <code>{html.escape(data.pretty_in)} {html.escape(data.in_code)}</code>",
         f"<b>Выдаем</b>: <code>{html.escape(data.pretty_out)} {html.escape(data.out_code)}</code>",
         "",
-        f"<b>Кассир</b>: {html.escape(data.tg_to) if data.tg_to else '—'}",
+        f"<b>Кассир</b>: {html.escape(cashier)}",
         f"<b>Код</b>: {html.escape(data.pin_code)}",
     ]
 
     if data.comment:
-        lines += ["", "----", f"<b>Комментарий</b>: {html.escape(data.comment)}"]
+        lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
 
     if changed_notice:
         lines += ["----", "✏️ <b>Изменение заявки</b>"]

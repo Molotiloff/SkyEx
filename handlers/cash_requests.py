@@ -79,33 +79,29 @@ FX_CMD_MAP = {
     "пбвп": ("fx", "USDW", "EUR500"),
     "ппвб": ("fx", "EUR500", "USDW"),
 }
-# --- парсинг старых/новых карточек при редактировании/кнопке ---
 
-# req_id: поддержим и старый числовой, и новый "Б-123456"
+# --- парсинг карточек при редактировании/кнопке/времени (PLAIN-текст) ---
+
 _RE_REQ_ID_ANY = re.compile(
     r"^\s*Заявка(?:\s+на\s+(?:внесение|выдачу|обмен))?\s*:\s*(?:<code>)?([A-Za-zА-Яа-я0-9\-]+)(?:</code>)?\s*$",
     re.IGNORECASE | re.M,
 )
-
 _RE_LINE_PIN = re.compile(
     r"^\s*Код:\s*(?:<tg-spoiler>)?(\d{3}-\d{3})(?:</tg-spoiler>)?\s*$",
     re.IGNORECASE | re.M,
 )
 
 # dep/wd
-_RE_LINE_AMOUNT = re.compile(
-    r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M
-)
+_RE_LINE_AMOUNT = re.compile(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M)
 
 # fx
-_RE_LINE_IN = re.compile(
-    r"^\s*Принимаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M
-)
+_RE_LINE_IN = re.compile(r"^\s*Принимаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M)
 _RE_LINE_OUT = re.compile(
-    r"^\s*Отдаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.IGNORECASE | re.M
+    r"^\s*(?:Отдаем|Выдаем):\s*(?:<code>)?(.+?)(?:</code>)?\s*$",
+    re.IGNORECASE | re.M,
 )
 
-# определение типа заявки по карточке
+# определение типа заявки по карточке (plain)
 _RE_TITLE_DEP = re.compile(r"^\s*Заявка\s+на\s+внесение\s*:", re.IGNORECASE | re.M)
 _RE_TITLE_WD = re.compile(r"^\s*Заявка\s+на\s+выдачу\s*:", re.IGNORECASE | re.M)
 _RE_TITLE_FX = re.compile(r"^\s*Заявка\s+на\s+обмен\s*:", re.IGNORECASE | re.M)
@@ -114,9 +110,53 @@ _RE_KIND_WD_LEGACY = re.compile(r"Код\s+выдачи", re.IGNORECASE)
 
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 
+# /время 10:00
+_RE_TIME_CMD = re.compile(r"^/время(?:@\w+)?\s+([0-2]\d:[0-5]\d)\s*$", re.IGNORECASE)
+# строка времени (в HTML-карточке)
+_RE_LINE_TIME = re.compile(
+    r"^\s*Время\s*:\s*(?:<code>)?([0-2]\d:[0-5]\d)(?:</code>)?\s*$",
+    re.IGNORECASE | re.M,
+)
+# проверяем только "Заявка" в начале (допускаем HTML теги перед словом)
+_RE_STARTS_WITH_ZAYAVKA = re.compile(r"^\s*(?:<[^>]+>\s*)*Заявка\b", re.IGNORECASE)
+
+
+def _is_request_chat(chat_id: int, *, city_cash_chats: dict[str, int], fallback_request_chat_id: int | None) -> bool:
+    if chat_id in set(city_cash_chats.values()):
+        return True
+    return bool(fallback_request_chat_id and chat_id == fallback_request_chat_id)
+
+
+def _upsert_time_line(card_text: str, hhmm: str) -> str:
+    """
+    Добавляет/заменяет 'Время: <code>HH:MM</code>' в карточке (HTML-текст).
+    Вставка:
+      1) если уже есть строка времени — заменяем
+      2) иначе вставляем перед '\\n----\\nСоздал:' если есть
+      3) иначе — перед последним '\\n----' если он есть
+      4) иначе — в конец
+    """
+    text = card_text or ""
+    new_line = f"Время: <code>{hhmm}</code>"
+
+    if _RE_LINE_TIME.search(text):
+        return _RE_LINE_TIME.sub(new_line, text)
+
+    mk = "\n----\nСоздал:"
+    idx = text.find(mk)
+    if idx != -1:
+        return text[:idx] + "\n" + new_line + text[idx:]
+
+    last_sep = text.rfind("\n----")
+    if last_sep != -1:
+        return text[:last_sep] + "\n" + new_line + text[last_sep:]
+
+    if text.endswith("\n"):
+        return text + new_line
+    return text + "\n" + new_line
+
 
 def _gen_req_id() -> str:
-    # всегда "Б-XXXXXX"
     return f"Б-{random.randint(0, 999999):06d}"
 
 
@@ -136,7 +176,7 @@ def _detect_kind_from_card(text: str) -> Optional[str]:
 
 def _parse_amount_code_line(blob: str) -> Optional[tuple[Decimal, str]]:
     """
-    '150 000 rub' -> (Decimal('150000'), 'RUB')
+    '10’000.00 rub' -> (Decimal('10000.00'), 'RUB')
     """
     try:
         amt_str, code = blob.rsplit(" ", 1)
@@ -152,6 +192,25 @@ def _parse_amount_code_line(blob: str) -> Optional[tuple[Decimal, str]]:
     return amt, code.strip().upper()
 
 
+def _reply_plain(reply: Message) -> str:
+    """
+    ТОЛЬКО plain текст для парсинга (regex ожидают строки без <b>...</b>).
+    """
+    if reply.caption is not None and not reply.text:
+        return reply.caption or ""
+    return reply.text or ""
+
+
+def _reply_html(reply: Message) -> tuple[str, bool]:
+    """
+    HTML-текст для редактирования без потери тегов.
+    Возвращает (content, is_caption)
+    """
+    if reply.caption is not None and not reply.text:
+        return (reply.html_caption or reply.caption or ""), True
+    return (reply.html_text or reply.text or ""), False
+
+
 class CashRequestsHandler:
     """
     Orchestrator:
@@ -159,6 +218,8 @@ class CashRequestsHandler:
       - rendering cards (utils/request_cards.py)
       - sending/editing + audit
       - "Выдано" callback only for dep
+      - /время HH:MM в чатах заявок: редактирует карточку без потери HTML-тегов
+        (проверяем только, что сообщение начинается со слова "Заявка")
     """
 
     def __init__(
@@ -167,8 +228,8 @@ class CashRequestsHandler:
         *,
         admin_chat_ids: Iterable[int] | None = None,
         admin_user_ids: Iterable[int] | None = None,
-        request_chat_id: int | None = None,                 # fallback общий чат (если нет city map)
-        city_cash_chats: Mapping[str, int] | None = None,   # {"екб": -100..., "члб": -100...}
+        request_chat_id: int | None = None,
+        city_cash_chats: Mapping[str, int] | None = None,
         default_city: str = "екб",
     ) -> None:
         self.repo = repo
@@ -187,6 +248,7 @@ class CashRequestsHandler:
     def _register(self) -> None:
         cmds = tuple(set(CMD_MAP.keys()) | set(FX_CMD_MAP.keys()))
         self.router.message.register(self._cmd_cash_req, Command(*cmds))
+        self.router.message.register(self._cmd_set_time, Command("время"))
         self.router.callback_query.register(self._cb_issue_done, F.data.startswith(CB_ISSUE_DONE))
 
     def _pick_request_chat_for_city(self, city: str) -> int | None:
@@ -204,8 +266,8 @@ class CashRequestsHandler:
           tg_from = "Выдает"
           tg_to   = "Принимает"
 
-        dep/fx: contact1=Принимает, contact2=Выдает
-        wd    : contact1=Выдает,    contact2=Принимает
+        dep/fx: contact1=Принимает(наш), contact2=Выдает/клиент
+        wd    : contact1=Выдает,        contact2=Принимает
         """
         if kind in ("dep", "fx"):
             tg_to = contact1
@@ -230,7 +292,9 @@ class CashRequestsHandler:
             "Напр.: /првд члб (700+300) 1000 @petya ! коммент\n\n"
             "Редактирование:\n"
             "• ответьте командой на карточку БОТА — суммы/код/req_id сохранятся;\n"
-            "• менять можно город/контакты/комментарий; тип и валюты менять нельзя."
+            "• менять можно город/контакты/комментарий; тип и валюты менять нельзя.\n\n"
+            "В чатах заявок:\n"
+            "• ответьте на карточку командой /время 10:00 — добавит/заменит строку времени."
         )
 
     async def _cmd_cash_req(self, message: Message) -> None:
@@ -263,14 +327,20 @@ class CashRequestsHandler:
 
         reply_msg = getattr(message, "reply_to_message", None)
         is_reply_to_bot = bool(
-            reply_msg and reply_msg.from_user and reply_msg.from_user.id == message.bot.id and (reply_msg.text or "")
+            reply_msg
+            and reply_msg.from_user
+            and reply_msg.from_user.id == message.bot.id
+            and (reply_msg.text or reply_msg.caption)
         )
 
         if is_reply_to_bot:
+            # ВАЖНО: редактирование заявки парсим только PLAIN,
+            # иначе <b>Сумма</b> сломает regex
+            old_text = _reply_plain(reply_msg)
             await self._edit_existing_request(
                 message=message,
                 parsed=parsed,
-                old_text=reply_msg.text or "",
+                old_text=old_text,
                 reply_msg_id=reply_msg.message_id,
             )
             return
@@ -478,7 +548,7 @@ class CashRequestsHandler:
             m_in = _RE_LINE_IN.search(old_text)
             m_out = _RE_LINE_OUT.search(old_text)
             if not (m_in and m_out):
-                await message.answer("Не нашёл строки Принимаем/Отдаем в исходной FX-заявке.")
+                await message.answer("Не нашёл строки Принимаем/(Отдаем|Выдаем) в исходной FX-заявке.")
                 return
 
             parsed_in = _parse_amount_code_line(m_in.group(1))
@@ -560,9 +630,6 @@ class CashRequestsHandler:
         await message.answer("✅ Заявка обновлена.")
 
     async def _cb_issue_done(self, cq: CallbackQuery) -> None:
-        """
-        Кнопка "Выдано" — только для dep.
-        """
         msg = cq.message
         if not msg:
             await cq.answer()
@@ -587,7 +654,7 @@ class CashRequestsHandler:
         op_kind: Optional[str] = None
         try:
             parts = (cq.data or "").split(":")
-            if len(parts) >= 4 and ":".join(parts[:2]) == CB_ISSUE_DONE:
+            if len(parts) >= 3 and ":".join(parts[:2]) == CB_ISSUE_DONE:
                 op_kind = parts[2].lower()
         except Exception:
             op_kind = None
@@ -652,3 +719,74 @@ class CashRequestsHandler:
             parse_mode="HTML",
         )
         await cq.answer("Отмечено как выдано")
+
+    async def _cmd_set_time(self, message: Message) -> None:
+        if not await require_manager_or_admin_message(
+            self.repo,
+            message,
+            admin_chat_ids=self.admin_chat_ids,
+            admin_user_ids=self.admin_user_ids,
+        ):
+            return
+
+        if not message.chat:
+            return
+        if not _is_request_chat(
+            message.chat.id,
+            city_cash_chats=self.city_cash_chats,
+            fallback_request_chat_id=self.request_chat_id,
+        ):
+            return  # молча
+
+        raw = (message.text or "").strip()
+        m = _RE_TIME_CMD.match(raw)
+        if not m:
+            await message.answer("Формат: /время 10:00")
+            return
+        hhmm = m.group(1)
+
+        reply = getattr(message, "reply_to_message", None)
+        if not reply:
+            await message.answer("Нужно ответить командой /время на сообщение с заявкой.")
+            return
+
+        target_text, is_caption = _reply_html(reply)
+        if not target_text.strip():
+            await message.answer("Нужно ответить на сообщение с текстом.")
+            return
+
+        # теперь проверяем только по первому слову "Заявка"
+        if not _RE_STARTS_WITH_ZAYAVKA.search(target_text):
+            await message.answer("Это не похоже на заявку (сообщение должно начинаться со слова «Заявка»).")
+            return
+
+        updated = _upsert_time_line(target_text, hhmm)
+
+        try:
+            if is_caption:
+                await message.bot.edit_message_caption(
+                    chat_id=reply.chat.id,
+                    message_id=reply.message_id,
+                    caption=updated,
+                    parse_mode="HTML",
+                    reply_markup=reply.reply_markup,
+                )
+            else:
+                await message.bot.edit_message_text(
+                    chat_id=reply.chat.id,
+                    message_id=reply.message_id,
+                    text=updated,
+                    parse_mode="HTML",
+                    reply_markup=reply.reply_markup,
+                )
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e).lower():
+                await message.answer("Время уже установлено.")
+                return
+            await message.answer(f"Не удалось обновить заявку: {e}")
+            return
+        except Exception as e:
+            await message.answer(f"Не удалось обновить заявку: {e}")
+            return
+
+        await message.answer(f"✅ Время добавлено: {hhmm}")

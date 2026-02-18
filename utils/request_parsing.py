@@ -26,8 +26,8 @@ class ParsedRequest:
     amt_out_expr: str = ""
 
     # common
-    contact1: str = ""        # "Принимает(наш контакт)" для dep/fx, "Выдает" для wd (семантика задаётся отдельно)
-    contact2: str = ""
+    contact1: str = ""        # dep/fx: кассир (наш контакт); wd: выдаёт (семантика задаётся отдельно)
+    contact2: str = ""        # клиент/второй контакт (опционально)
     comment: str = ""
 
 
@@ -55,12 +55,16 @@ def _pick_contacts(tokens: list[str]) -> tuple[str, str, list[str]]:
     if not tokens:
         return "", "", tokens
 
-    if not _PART_RE.match(tokens[-1]):
+    last = tokens[-1].strip()
+    if not _PART_RE.match(last):
         return "", "", tokens
 
-    if len(tokens) >= 2 and _PART_RE.match(tokens[-2]):
-        return tokens[-2].strip(), tokens[-1].strip(), tokens[:-2]
-    return tokens[-1].strip(), "", tokens[:-1]
+    if len(tokens) >= 2:
+        prev = tokens[-2].strip()
+        if _PART_RE.match(prev):
+            return prev, last, tokens[:-2]
+
+    return last, "", tokens[:-1]
 
 
 def parse_dep_wd(
@@ -97,6 +101,7 @@ def parse_dep_wd(
     contact1, contact2, core = _pick_contacts(tokens)
     if not contact1:
         return None
+
     amount_expr = " ".join(core).strip()
     if not amount_expr:
         return None
@@ -147,14 +152,12 @@ def parse_fx(
     if not tokens:
         return None
 
-    # город опционально
     city, tokens = _pick_city(tokens, city_keys=city_keys, default_city=default_city)
 
     # после выкусывания города минимум: amt_in amt_out contact1
     if len(tokens) < 3:
         return None
 
-    # контакты снимаем с конца (1 или 2)
     contact1, contact2, core = _pick_contacts(tokens)
     if not contact1:
         return None
