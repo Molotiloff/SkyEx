@@ -159,9 +159,9 @@ def build_city_card_fx(
     if changed_notice:
         lines += ["⚠️ <b>Внимание: заявка изменена.</b>", ""]
 
-    client_line = html.escape(chat_name)
+    client_line = f"<code>{html.escape(chat_name)}</code>"
     if (data.tg_from or "").strip():
-        client_line = f"{client_line} / {html.escape(data.tg_from.strip())}"
+        client_line = f"<code>{client_line}</code> / {html.escape(data.tg_from.strip())}"
 
     cashier = data.tg_to.strip() if (data.tg_to or "").strip() else "—"
 

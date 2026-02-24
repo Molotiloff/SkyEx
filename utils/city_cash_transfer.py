@@ -157,7 +157,6 @@ async def city_cash_transfer_to_client(
                 idempotency_key=idem2,
             )
             pretty_delta = format_amount_with_sign(delta_abs, target_prec, sign="+")
-            sign_for_caption = ""
         else:
             log.info("repo.withdraw client_id=%s code=%s amount=%s idem=%s", target_client_id, code, str(delta_abs), idem2)
             await repo.withdraw(
@@ -169,7 +168,6 @@ async def city_cash_transfer_to_client(
                 idempotency_key=idem2,
             )
             pretty_delta = format_amount_with_sign(delta_abs, target_prec, sign="-")
-            sign_for_caption = "-"
     except Exception:
         log.exception("FAILED repo operation for client_id=%s code=%s", target_client_id, code)
         return CityTransferResult(
@@ -181,7 +179,7 @@ async def city_cash_transfer_to_client(
 
     # 4) отправить фото/квитанцию
     photo_file_id = _pick_photo_file_id(src_message)
-    caption = f"/{code.lower()} {sign_for_caption}{amount_expr}".strip()
+    caption = f"/{code.lower()} {amount_expr}".strip()
     if extra_comment:
         caption += f" {extra_comment}"
 
