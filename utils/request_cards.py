@@ -71,8 +71,8 @@ def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineK
         lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
     text = "\n".join(lines)
 
-    markup = _issue_keyboard(kind=data.kind, req_id=data.req_id) if data.kind == "dep" else None
-    return text, markup
+    # markup = _issue_keyboard(kind=data.kind, req_id=data.req_id) if data.kind == "dep" else None
+    return text, None
 
 
 def build_city_card_dep_wd(
