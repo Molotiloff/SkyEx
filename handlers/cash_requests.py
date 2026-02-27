@@ -461,12 +461,12 @@ class CashRequestsHandler:
                 pass
 
     async def _edit_existing_request(
-        self,
-        *,
-        message: Message,
-        parsed: ParsedRequest,
-        old_text: str,
-        reply_msg_id: int,
+            self,
+            *,
+            message: Message,
+            parsed: ParsedRequest,
+            old_text: str,
+            reply_msg_id: int,
     ) -> None:
         m_req = _RE_REQ_ID_ANY.search(old_text)
         m_pin = _RE_LINE_PIN.search(old_text)
@@ -493,7 +493,9 @@ class CashRequestsHandler:
 
         tg_from, tg_to = self._split_contacts(parsed.kind, parsed.contact1, parsed.contact2)
 
+        # --- DEP / WD ---
         if parsed.kind in ("dep", "wd"):
+            # валюту берём из СТАРОЙ карточки (запрещаем менять)
             m_amt = _RE_LINE_AMOUNT.search(old_text)
             if not m_amt:
                 await message.answer("Не нашёл строку Сумма в исходной заявке.")
@@ -504,9 +506,10 @@ class CashRequestsHandler:
                 await message.answer("Не удалось распарсить сумму/валюту в исходной заявке.")
                 return
 
-            amount_raw_old, code_old = parsed_old
+            _amount_raw_old, code_old = parsed_old
             code_old = code_old.upper()
 
+            # команда задаёт валюту через CMD_MAP — не даём менять валюту
             if code_old != parsed.code:
                 await message.answer(
                     f"Нельзя менять валюту при редактировании.\n"
@@ -519,10 +522,20 @@ class CashRequestsHandler:
                 await message.answer(f"Счёт {code_old} не найден. Добавьте валюту: /добавь {code_old} [точность]")
                 return
 
+            # ✅ СУММУ БЕРЁМ ИЗ НОВОЙ КОМАНДЫ
+            try:
+                amount_raw_new = evaluate(parsed.amount_expr)
+                if amount_raw_new <= 0:
+                    await message.answer("Сумма должна быть > 0")
+                    return
+            except (CalcError, InvalidOperation) as e:
+                await message.answer(f"Ошибка в выражении суммы: {e}")
+                return
+
             prec = int(acc.get("precision") or 2)
             q = Decimal(10) ** -prec
-            amount_old = amount_raw_old.quantize(q).quantize(Decimal("1"))
-            pretty_amount = format_amount_core(amount_old, prec)
+            amount_new = amount_raw_new.quantize(q).quantize(Decimal("1"))
+            pretty_amount = format_amount_core(amount_new, prec)
 
             data = CardDataDepWd(
                 kind=parsed.kind,
@@ -536,7 +549,7 @@ class CashRequestsHandler:
                 comment=parsed.comment,
             )
 
-            text_client, markup = build_client_card_dep_wd(data)
+            text_client, _markup_client = build_client_card_dep_wd(data)
             text_city = build_city_card_dep_wd(
                 data,
                 chat_name=chat_name,
@@ -544,21 +557,40 @@ class CashRequestsHandler:
                 changed_notice=True,
             )
 
+            # клиенту: без кнопок
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=reply_msg_id,
+                    text=text_client,
+                    parse_mode="HTML",
+                    reply_markup=None,  # 👈 убираем кнопку/клавиатуру
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e).lower():
+                    await message.answer(f"Не удалось отредактировать заявку: {e}")
+                    return
+            except Exception as e:
+                await message.answer(f"Не удалось отредактировать заявку: {e}")
+                return
+
+        # --- FX ---
         else:
+            # валюты берём из СТАРОЙ карточки (запрещаем менять)
             m_in = _RE_LINE_IN.search(old_text)
             m_out = _RE_LINE_OUT.search(old_text)
             if not (m_in and m_out):
                 await message.answer("Не нашёл строки Принимаем/(Отдаем|Выдаем) в исходной FX-заявке.")
                 return
 
-            parsed_in = _parse_amount_code_line(m_in.group(1))
-            parsed_out = _parse_amount_code_line(m_out.group(1))
-            if not parsed_in or not parsed_out:
+            parsed_in_old = _parse_amount_code_line(m_in.group(1))
+            parsed_out_old = _parse_amount_code_line(m_out.group(1))
+            if not parsed_in_old or not parsed_out_old:
                 await message.answer("Не удалось распарсить суммы/валюты в исходной FX-заявке.")
                 return
 
-            amt_in_old, in_code_old = parsed_in
-            amt_out_old, out_code_old = parsed_out
+            _ain_old, in_code_old = parsed_in_old
+            _aout_old, out_code_old = parsed_out_old
             in_code_old = in_code_old.upper()
             out_code_old = out_code_old.upper()
 
@@ -575,28 +607,39 @@ class CashRequestsHandler:
                 await message.answer("Не найдены счета для валют FX в кошельке. Добавьте валюты через /добавь ...")
                 return
 
+            # ✅ СУММЫ БЕРЁМ ИЗ НОВОЙ КОМАНДЫ
+            try:
+                ain_raw_new = evaluate(parsed.amt_in_expr)
+                aout_raw_new = evaluate(parsed.amt_out_expr)
+                if ain_raw_new <= 0 or aout_raw_new <= 0:
+                    await message.answer("Суммы должны быть > 0")
+                    return
+            except (CalcError, InvalidOperation) as e:
+                await message.answer(f"Ошибка в выражении суммы: {e}")
+                return
+
             prec_in = int(acc_in.get("precision") or 2)
             prec_out = int(acc_out.get("precision") or 2)
             q_in = Decimal(10) ** -prec_in
             q_out = Decimal(10) ** -prec_out
 
-            amt_in_old = amt_in_old.quantize(q_in).quantize(Decimal("1"))
-            amt_out_old = amt_out_old.quantize(q_out).quantize(Decimal("1"))
+            ain_new = ain_raw_new.quantize(q_in).quantize(Decimal("1"))
+            aout_new = aout_raw_new.quantize(q_out).quantize(Decimal("1"))
 
             data_fx = CardDataFx(
                 req_id=req_id,
                 city=parsed.city,
                 in_code=in_code_old,
                 out_code=out_code_old,
-                pretty_in=format_amount_core(amt_in_old, prec_in),
-                pretty_out=format_amount_core(amt_out_old, prec_out),
+                pretty_in=format_amount_core(ain_new, prec_in),
+                pretty_out=format_amount_core(aout_new, prec_out),
                 tg_from=tg_from,
                 tg_to=tg_to,
                 pin_code=pin_code,
                 comment=parsed.comment,
             )
 
-            text_client, markup = build_client_card_fx(data_fx)
+            text_client, _markup_client = build_client_card_fx(data_fx)
             text_city = build_city_card_fx(
                 data_fx,
                 chat_name=chat_name,
@@ -604,22 +647,23 @@ class CashRequestsHandler:
                 changed_notice=True,
             )
 
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=reply_msg_id,
-                text=text_client,
-                parse_mode="HTML",
-                reply_markup=markup,
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e).lower():
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=reply_msg_id,
+                    text=text_client,
+                    parse_mode="HTML",
+                    reply_markup=None,  # FX и так без кнопок, но пусть будет явно
+                )
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e).lower():
+                    await message.answer(f"Не удалось отредактировать заявку: {e}")
+                    return
+            except Exception as e:
                 await message.answer(f"Не удалось отредактировать заявку: {e}")
                 return
-        except Exception as e:
-            await message.answer(f"Не удалось отредактировать заявку: {e}")
-            return
 
+        # уведомление в чат заявок города (без изменений)
         req_chat_id = self._pick_request_chat_for_city(parsed.city)
         if req_chat_id:
             try:
