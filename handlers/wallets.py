@@ -41,6 +41,7 @@ _CURRENCY_ALIASES = {
     "eur": "EUR", "евро": "EUR",
     "rub": "RUB", "руб": "RUB", "рубль": "RUB", "рубли": "RUB", "рублей": "RUB", "руб.": "RUB", "рубль.": "RUB",
     "usdw": "USDW", "долб": "USDW", "доллбел": "USDW", "долбел": "USDW",
+    "eur500": "EUR500", "евро500": "EUR500",
 }
 
 _ALLOWED_EXPR_CHARS = r"0-9\.\,\+\-\*\/\(\)\s%"
@@ -535,12 +536,12 @@ class WalletsHandler:
         # Валютные команды (игнор в указанных чатах делаем внутри обработчика)
         self.router.message.register(
             self._on_currency_change,
-            F.text.regexp(r"^/[^\W\d_]+\s+")
+            F.text.regexp(r"^/[A-Za-zА-Яа-я0-9_]+\s+")
         )
 
         self.router.message.register(
             self._on_currency_change,
-            F.caption.regexp(r"^/[^\W\d_]+\s+")
+            F.caption.regexp(r"^/[A-Za-zА-Яа-я0-9_]+\s+")
         )
 
         self.router.callback_query.register(self._cb_rmcur, F.data.startswith("rmcur:"))
