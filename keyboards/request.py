@@ -3,6 +3,36 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 CB_PARTNER = "req:partner"
 CB_TABLE_DONE = "req:table_done"
 CB_ISSUE_DONE = "req:issue_done"
+CB_DEAL_DONE = "cash:deal_done"
+
+# Удаление строк из таблиц по номеру заявки (подтверждение)
+CB_TABLE_DEL = "req:table_del"
+CB_TABLE_DEL_YES = "req:table_del:yes"
+CB_TABLE_DEL_NO = "req:table_del:no"
+
+
+def deal_done_kb(req_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Сделка завершена",
+                    callback_data=f"{CB_DEAL_DONE}:req:{req_id}",
+                )
+            ]
+        ]
+    )
+
+
+def _enc_num(x: Decimal | str) -> str:
+    """
+    Преобразует число/строку в компактный вид без пробелов
+    и с запятой как десятичным разделителем (если была точка).
+    """
+    s = str(x).strip().replace(" ", "").replace("\u00A0", "")
+    if "." in s and "," not in s:
+        s = s.replace(".", ",")
+    return s
 
 
 def request_keyboard(

@@ -1,4 +1,3 @@
-# config.py
 import os
 from dataclasses import dataclass
 
@@ -24,11 +23,11 @@ def _parse_ids_set(s: str | None) -> set[int]:
     return {int(x.strip()) for x in s.split(",") if x.strip()}
 
 
-def _parse_city_chat_map(s: str | None) -> dict[str, int]:
+def _parse_city_chat_map(s: str | None, *, env_name: str) -> dict[str, int]:
     """
     Формат env:
       CASH_CHAT_ID="екб:-49509,члб:-49502"
-    (это ЧАТЫ ЗАЯВОК по городам, не кассы)
+      CITY_SCHEDULE_CHATS="екб:-60001,члб:-60002"
     """
     out: dict[str, int] = {}
     raw = (s or "").strip()
@@ -41,7 +40,7 @@ def _parse_city_chat_map(s: str | None) -> dict[str, int]:
             continue
         if ":" not in part:
             raise RuntimeError(
-                "Некорректный формат CASH_CHAT_ID. Ожидаю 'екб:-100...,члб:-100...'"
+                f"Некорректный формат {env_name}. Ожидаю 'екб:-100...,члб:-100...'"
             )
         city, chat_id = part.split(":", 1)
         city = (city or "").strip().lower()
@@ -60,11 +59,15 @@ class Config:
     admin_chat_id: int
     admin_ids: list[int]
 
-    # общий чат заявок (старое/общее)
+    # общий чат заявок (legacy)
     request_chat_id: int | None
 
-    # НОВОЕ: словарь "город -> чат заявок"
+    # город -> чат заявок
     cash_chat_map: dict[str, int]
+
+    # город -> чат расписания
+    city_schedule_chats: dict[str, int]
+
     default_city: str  # например "екб"
 
     # кассы города (операционные чаты кассиров)
@@ -91,11 +94,21 @@ class Config:
 
         request_chat_id = _parse_int(os.getenv("REQUEST_CHAT_ID"))
 
-        # ВАЖНО: теперь CASH_CHAT_ID — это карта городов (чаты заявок)
-        cash_chat_map = _parse_city_chat_map(os.getenv("CASH_CHAT_ID"))
+        # чаты заявок по городам
+        cash_chat_map = _parse_city_chat_map(
+            os.getenv("CASH_CHAT_ID"),
+            env_name="CASH_CHAT_ID",
+        )
+
+        # чаты расписания по городам
+        city_schedule_chats = _parse_city_chat_map(
+            os.getenv("CITY_SCHEDULE_CHATS"),
+            env_name="CITY_SCHEDULE_CHATS",
+        )
+
         default_city = (os.getenv("DEFAULT_CITY", "екб") or "екб").strip().lower()
 
-        # кассы города (как и раньше)
+        # кассы города
         city_cash_chat_ids = _parse_ids_set(os.getenv("CITY_CASH_CHAT_IDS"))
 
         return cls(
@@ -105,6 +118,7 @@ class Config:
             admin_ids=admin_ids,
             request_chat_id=request_chat_id,
             cash_chat_map=cash_chat_map,
+            city_schedule_chats=city_schedule_chats,
             default_city=default_city,
             city_cash_chat_ids=city_cash_chat_ids,
         )

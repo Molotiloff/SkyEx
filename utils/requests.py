@@ -262,18 +262,18 @@ def get_request_router(*, allowed_chat_ids: Iterable[int] | None = None) -> Rout
 
 
 def get_issue_router(
-        *,
-        repo,  # Repo
-        request_chat_id: int | None = None,
-        admin_chat_ids: Iterable[int] | None = None,
-        admin_user_ids: Iterable[int] | None = None,
+    *,
+    repo,  # Repo
+    request_chat_id: int | None = None,
+    admin_chat_ids: Iterable[int] | None = None,
+    admin_user_ids: Iterable[int] | None = None,
 ) -> Router:
     """
-    Клиентские чаты — кнопка 'Выдано' (жать могут только менеджеры/админы).
+    Клиентские чаты — кнопка 'Выдано'.
     После нажатия:
       1) проводим операцию в БД (депозит -> зачислить, выдача -> списать),
       2) помечаем сообщение статусом и убираем кнопку,
-      3) дублируем исходный текст (без статуса) в заявочный чат.
+      3) при наличии request_chat_id — дублируем ИСХОДНЫЙ текст (без статуса) в заявочный чат.
     """
     router = Router()
     admin_chat_ids = set(admin_chat_ids or [])
@@ -281,10 +281,11 @@ def get_issue_router(
 
     @router.callback_query(F.data == CB_ISSUE_DONE)
     async def _cb_issue_done(cq: CallbackQuery) -> None:
+        # доступ
         if not await require_manager_or_admin_callback(
-                repo, cq,
-                admin_chat_ids=admin_chat_ids,
-                admin_user_ids=admin_user_ids,
+            repo, cq,
+            admin_chat_ids=admin_chat_ids,
+            admin_user_ids=admin_user_ids,
         ):
             return
 
@@ -297,6 +298,7 @@ def get_issue_router(
         if not parsed:
             await cq.answer("Не удалось распознать сумму или валюту.", show_alert=True)
             return
+
         kind_ru, amount, code = parsed
         if amount <= 0:
             await cq.answer("Сумма должна быть > 0.", show_alert=True)

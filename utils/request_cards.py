@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-from keyboards.request import CB_ISSUE_DONE
+from keyboards.request import CB_DEAL_DONE
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,15 +45,18 @@ def _req_title(kind: str) -> str:
     return "Заявка на обмен"
 
 
-def _issue_keyboard(kind: str, req_id: str) -> InlineKeyboardMarkup:
-    cb = f"{CB_ISSUE_DONE}:{kind}:{req_id}"
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Выдано", callback_data=cb)]])
+def _deal_done_keyboard(req_id: str) -> InlineKeyboardMarkup:
+    cb = f"{CB_DEAL_DONE}:req:{req_id}"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Сделка завершена", callback_data=cb)]
+        ]
+    )
 
 
 def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineKeyboardMarkup]]:
     """
-    Карточка клиенту: БЕЗ audit ("Создал..."), код в spoiler.
-    Кнопка: только для dep, для wd — None.
+    Карточка клиенту: без audit, код в spoiler, без кнопок.
     """
     title = _req_title(data.kind)
     lines: list[str] = [
@@ -69,10 +72,8 @@ def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineK
     lines.append(f"<b>Код</b>: <tg-spoiler>{html.escape(data.pin_code)}</tg-spoiler>")
     if data.comment:
         lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
-    text = "\n".join(lines)
 
-    # markup = _issue_keyboard(kind=data.kind, req_id=data.req_id) if data.kind == "dep" else None
-    return text, None
+    return "\n".join(lines), None
 
 
 def build_city_card_dep_wd(
@@ -81,14 +82,16 @@ def build_city_card_dep_wd(
     chat_name: str,
     audit_lines: Sequence[str],
     changed_notice: bool = False,
-) -> str:
+) -> tuple[str, InlineKeyboardMarkup]:
     """
-    Карточка в чат заявок города: код БЕЗ spoiler, с audit.
+    Карточка в чат заявок города: код без spoiler, с audit и кнопкой
+    "Сделка завершена".
     """
     title = _req_title(data.kind)
     lines: list[str] = []
     if changed_notice:
         lines += ["⚠️ <b>Внимание: заявка изменена.</b>", ""]
+
     lines += [
         f"<b>{title}</b>: <code>{html.escape(data.req_id)}</code>",
         f"<b>Город</b>: <code>{html.escape(data.city)}</code>",
@@ -96,32 +99,30 @@ def build_city_card_dep_wd(
         "-----",
         f"<b>Сумма</b>: <code>{html.escape(data.pretty_amount)} {html.escape(data.code.lower())}</code>",
     ]
+
     if data.tg_to:
         lines.append(f"<b>Принимает</b>: {data.tg_to}")
     if data.tg_from:
         lines.append(f"<b>Выдает</b>: {data.tg_from}")
+
     lines.append(f"<b>Код</b>: {html.escape(data.pin_code)}")
+
     if data.comment:
         lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
+
     if changed_notice:
         lines += ["----", "✏️ <b>Изменение заявки</b>"]
+
     lines += list(audit_lines)
-    return "\n".join(lines)
+
+    text = "\n".join(lines)
+    markup = _deal_done_keyboard(data.req_id)
+    return text, markup
 
 
 def build_client_card_fx(data: CardDataFx) -> tuple[str, Optional[InlineKeyboardMarkup]]:
     """
     FX клиенту: без audit, без кнопок.
-    Формат:
-      Заявка на обмен: <Номер>
-      -----
-      Клиент: +7XXXXXXXXXX / @username(контакт 2)
-
-      Принимаем: 1 000 000 RUB
-      Выдаем: 10 000 USD
-
-      Кассир: @good_cashier(контакт 1)
-      Код: 688-742
     """
     client_contact = data.tg_from.strip() if (data.tg_from or "").strip() else "—"
     cashier = data.tg_to.strip() if (data.tg_to or "").strip() else "—"
@@ -149,11 +150,10 @@ def build_city_card_fx(
     chat_name: str,
     audit_lines: Sequence[str],
     changed_notice: bool = False,
-) -> str:
+) -> tuple[str, InlineKeyboardMarkup]:
     """
-    FX в чат заявок города: с audit, код без spoiler.
-    Клиент: <chat_name> / <контакт2>
-    Кассир: <контакт1>
+    FX в чат заявок города: с audit, код без spoiler, с кнопкой
+    "Сделка завершена".
     """
     lines: list[str] = []
     if changed_notice:
@@ -161,7 +161,7 @@ def build_city_card_fx(
 
     client_line = f"<code>{html.escape(chat_name)}</code>"
     if (data.tg_from or "").strip():
-        client_line = f"<code>{client_line}</code> / {html.escape(data.tg_from.strip())}"
+        client_line = f"{client_line} / {html.escape(data.tg_from.strip())}"
 
     cashier = data.tg_to.strip() if (data.tg_to or "").strip() else "—"
 
@@ -184,4 +184,7 @@ def build_city_card_fx(
         lines += ["----", "✏️ <b>Изменение заявки</b>"]
 
     lines += list(audit_lines)
-    return "\n".join(lines)
+
+    text = "\n".join(lines)
+    markup = _deal_done_keyboard(data.req_id)
+    return text, markup

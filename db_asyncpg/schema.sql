@@ -69,3 +69,44 @@ CREATE INDEX IF NOT EXISTS ix_tx_client_time ON transactions(client_id, txn_at, 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tx_client_idem
 ON transactions(client_id, idempotency_key)
 WHERE idempotency_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS request_schedule_entries (
+    id BIGSERIAL PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    city TEXT NOT NULL,
+    hhmm TEXT NOT NULL,
+    request_kind TEXT NOT NULL,
+    line_text TEXT NOT NULL,
+    client_name TEXT NOT NULL,
+    request_chat_id BIGINT NOT NULL,
+    request_message_id BIGINT NOT NULL,
+    board_chat_id BIGINT,
+    board_message_id BIGINT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (req_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_request_schedule_entries_city_active_hhmm
+    ON request_schedule_entries(city, is_active, hhmm);
+
+CREATE INDEX IF NOT EXISTS idx_request_schedule_entries_request_msg
+    ON request_schedule_entries(request_chat_id, request_message_id);
+
+CREATE TABLE IF NOT EXISTS request_schedule_boards (
+    city TEXT PRIMARY KEY,
+    board_chat_id BIGINT NOT NULL,
+    board_message_id BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- создаём последовательность, если ещё нет
+CREATE SEQUENCE IF NOT EXISTS request_id_seq
+  START WITH 100000
+  INCREMENT BY 1
+  MINVALUE 1
+  NO MAXVALUE
+  CACHE 1;
+
+COMMENT ON SEQUENCE request_id_seq IS 'Последовательные номера заявок (монотонные)';

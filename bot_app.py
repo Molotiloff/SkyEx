@@ -28,6 +28,8 @@ from handlers.nonzero import NonZeroHandler
 from handlers.accept_short import AcceptShortHandler
 from utils.requests import get_request_router, get_issue_router
 from utils.offices import OFFICE_CARDS
+from utils.requests import get_issue_router
+from handlers.request_table_done import get_table_done_router
 
 
 class BotApp:
@@ -37,6 +39,7 @@ class BotApp:
 
         admin_chat_list = [self.config.admin_chat_id] if self.config.admin_chat_id else None
         admin_user_list = self.config.admin_ids if self.config.admin_ids else None
+
         request_chat_id = self.config.request_chat_id
 
         # НОВОЕ: чаты заявок по городам
@@ -112,11 +115,10 @@ class BotApp:
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
-            # НОВОЕ:
-            city_cash_chats=city_cash_chats,
-            default_city=default_city,
-            # можно оставить request_chat_id как общий/legacy, если хендлер это поддерживает
-            request_chat_id=request_chat_id,
+            city_cash_chats=config.cash_chat_map,
+            city_schedule_chats=city_schedule_chats,
+            default_city=config.default_city,
+            request_chat_id=config.request_chat_id,
         )
         self.dp.include_router(self.cash_requests.router)
 
