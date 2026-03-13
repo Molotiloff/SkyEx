@@ -1,4 +1,7 @@
+# keyboards/request.py
+from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from decimal import Decimal
 
 CB_PARTNER = "req:partner"
 CB_TABLE_DONE = "req:table_done"

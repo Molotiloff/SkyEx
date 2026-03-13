@@ -55,6 +55,7 @@ class BotApp:
         if request_chat_id:
             ignore_chat_ids.add(int(request_chat_id))
         ignore_chat_ids.update(int(x) for x in city_cash_chats.values())
+        city_schedule_chats = config.city_schedule_chats
 
         self.ignore_chat_ids = ignore_chat_ids  # чтобы логирование было корректным
 
@@ -111,6 +112,7 @@ class BotApp:
             ignore_chat_ids=ignore_chat_ids,
         )
 
+        # CashRequestsHandler (заявки /депр /выдр с городами)
         self.cash_requests = CashRequestsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
