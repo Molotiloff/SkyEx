@@ -1,33 +1,31 @@
-# utils/exchange_base.py
 from __future__ import annotations
 
 import html
-import random
 import re
 from abc import ABC
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from db_asyncpg.repo import Repo
+from keyboards.request import request_keyboard#, delete_from_table_keyboard
 from utils.calc import CalcError, evaluate
 from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core
 from utils.info import _fmt_rate, get_chat_name
-# --- индексы соответствий «команда ↔ сообщение бота» ---
 from utils.req_index import req_index
 from utils.requests import post_request_message
 
-# --- Вспомогательное: парсинг строк из старой заявки ---
+# --- Вспомогательное: парсинг строк из карточки заявки ---
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 _RE_GET = re.compile(r"^Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M | re.I)
 _RE_GIVE = re.compile(r"^Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M | re.I)
 
-# Ищем номер заявки в тексте сообщения бота
+# Номер заявки в тексте сообщения бота
 _RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.IGNORECASE)
 
-# Для извлечения «Создал: ...» из старого текста
+# «Создал: ...» в старом тексте
 _RE_CREATED_BY = re.compile(r"^\s*Создал:\s*(?:<b>)?(.+?)(?:</b>)?\s*$", re.I | re.M)
 
 
@@ -66,7 +64,6 @@ class AbstractExchangeHandler(ABC):
 
     # ================================================================
     # Перерасчёт баланса при редактировании существующей заявки
-    # (используется хендлером при ответе на сообщение бота)
     # ================================================================
     async def apply_edit_delta(
         self,
@@ -85,11 +82,6 @@ class AbstractExchangeHandler(ABC):
         recv_is_deposit: bool,     # как проводится левая нога в этой команде
         pay_is_withdraw: bool,     # как проводится правая нога в этой команде
     ) -> bool:
-        """
-        Сравнивает «старую» заявку (по тексту) и новые параметры.
-        Аккуратно откатывает/доначисляет разницу с идемпотентными ключами.
-        Возвращает True, если перерасчёт выполнен; False — если не удалось распарсить старые суммы.
-        """
         mg = _RE_GET.search(old_request_text or "")
         mp = _RE_GIVE.search(old_request_text or "")
         if not (mg and mp):
@@ -138,9 +130,9 @@ class AbstractExchangeHandler(ABC):
                     idempotency_key=f"{idem_prefix}:{suffix}:pay",
                 )
 
-        # Если валюты поменялись — откатываем старую заявку и применяем новую
+        # Если валюты поменялись — полный откат старых сумм и применение новых
         if (old_recv_code != recv_code_new) or (old_pay_code != pay_code_new):
-            # Откат старой левой ноги
+            # Откат левой
             if recv_is_deposit:
                 await self.repo.withdraw(
                     client_id=client_id, currency_code=old_recv_code, amount=old_recv_amt,
@@ -153,7 +145,7 @@ class AbstractExchangeHandler(ABC):
                     comment="edit revert old recv", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:revert:recv",
                 )
-            # Откат старой правой ноги
+            # Откат правой
             if pay_is_withdraw:
                 await self.repo.deposit(
                     client_id=client_id, currency_code=old_pay_code, amount=old_pay_amt,
@@ -175,7 +167,7 @@ class AbstractExchangeHandler(ABC):
         d_recv = recv_amount_new - old_recv_amt
         d_pay = pay_amount_new - old_pay_amt
 
-        # Левая нога (принимаем)
+        # Левая
         if d_recv > 0:
             await _apply_recv(d_recv, "delta+")
         elif d_recv < 0:
@@ -192,7 +184,7 @@ class AbstractExchangeHandler(ABC):
                     idempotency_key=f"{idem_prefix}:delta-:recv",
                 )
 
-        # Правая нога (отдаём)
+        # Правая
         if d_pay > 0:
             await _apply_pay(d_pay, "delta+")
         elif d_pay < 0:
@@ -212,29 +204,25 @@ class AbstractExchangeHandler(ABC):
         return True
 
     # ================================================================
-    # Попытка отредактировать существующую заявку (если команда-ответ)
-    # Возвращает True, если редактирование выполнено, иначе False.
+    # Попытка редактирования заявки (строго ответом на карточку бота)
     # ================================================================
-        # utils/exchange_base.py
-
     async def try_edit_request(
-            self,
-            *,
-            message: Message,
-            recv_code: str,
-            pay_code: str,
-            recv_amount: Decimal,
-            pay_amount: Decimal,
-            recv_prec: int,
-            pay_prec: int,
-            rate_str: str,
-            user_note: str | None,
-            recv_is_deposit: bool,
-            pay_is_withdraw: bool,
+        self,
+        *,
+        message: Message,
+        recv_code: str,
+        pay_code: str,
+        recv_amount: Decimal,
+        pay_amount: Decimal,
+        recv_prec: int,
+        pay_prec: int,
+        rate_str: str,
+        user_note: str | None,
+        recv_is_deposit: bool,
+        pay_is_withdraw: bool,
     ) -> bool:
         reply_msg = getattr(message, "reply_to_message", None)
         if not (reply_msg and (reply_msg.text or "")):
-            # Нет реплая — это не редактирование, создаём новую заявку в вызывающем коде
             return False
 
         # Разрешаем редактирование ТОЛЬКО если это ответ на карточку БОТА
@@ -333,7 +321,7 @@ class AbstractExchangeHandler(ABC):
             await message.answer(f"Не удалось изменить заявку: {e}")
             return True
 
-        # Дублирование в заявочный чат и показ /дай — как было
+        # Дублирование в заявочный чат + /дай
         if self.request_chat_id:
             req_lines = [
                 f"<b>Заявка</b>: <code>{edit_req_id}</code>",
@@ -349,7 +337,19 @@ class AbstractExchangeHandler(ABC):
                           f"Создал: <b>{html.escape(creator_name)}</b>"]
             alert_text = "⚠️ Внимание: заявка изменена.\n\n" + "\n".join(req_lines)
             try:
-                await post_request_message(message.bot, self.request_chat_id, alert_text, reply_markup=None)
+                await post_request_message(
+                    message.bot,
+                    self.request_chat_id,
+                    alert_text,
+                    reply_markup=request_keyboard(
+                        in_ccy=recv_code,  # что принимаем
+                        out_ccy=pay_code,  # что отдаём
+                        in_amount=recv_amount,  # сумма "Получаем"
+                        out_amount=pay_amount,  # сумма "Отдаём"
+                        client_rate=rate_str,  # курс из заявки
+                        req_id=edit_req_id,  # номер заявки в кнопку
+                    ),
+                )
             except Exception:
                 pass
 
@@ -365,6 +365,182 @@ class AbstractExchangeHandler(ABC):
         if not did_recalc:
             await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, отвечайте на сообщение БОТА с заявкой.")
         return True
+
+    # ================================================================
+    # Универсальная отмена заявки по коллбэку
+    # ================================================================
+    async def handle_cancel_callback(
+        self,
+        cq: CallbackQuery,
+        *,
+        recv_is_deposit: bool,
+        pay_is_withdraw: bool,
+    ) -> None:
+        msg = cq.message
+        if not msg or not msg.text:
+            await cq.answer("Нет сообщения", show_alert=True)
+            return
+
+        # req_id из callback_data (формат: req_cancel:<id>)
+        try:
+            _, req_id_s = (cq.data or "").split(":", 1)
+        except Exception:
+            await cq.answer("Некорректные данные", show_alert=True)
+            return
+
+        # суммы/коды
+        m_get = _RE_GET.search(msg.text)
+        m_give = _RE_GIVE.search(msg.text)
+        if not (m_get and m_give):
+            await cq.answer("Не удалось распознать заявку", show_alert=True)
+            return
+
+        p_get = _parse_amt_code(m_get.group(1))
+        p_give = _parse_amt_code(m_give.group(1))
+        if not (p_get and p_give):
+            await cq.answer("Не удалось распознать суммы", show_alert=True)
+            return
+
+        recv_amt_raw, recv_code = p_get
+        pay_amt_raw, pay_code = p_give
+
+        chat_id = msg.chat.id
+        chat_name = get_chat_name(msg)
+        client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
+        accounts = await self.repo.snapshot_wallet(client_id)
+
+        def _find_acc(code: str):
+            return next((r for r in accounts if str(r["currency_code"]).upper() == code.upper()), None)
+
+        acc_recv = _find_acc(recv_code)
+        acc_pay = _find_acc(pay_code)
+        if not acc_recv or not acc_pay:
+            await cq.answer("Счёта клиента изменились. Проверьте /кошелек", show_alert=True)
+            return
+
+        recv_prec = int(acc_recv["precision"])
+        pay_prec = int(acc_pay["precision"])
+        q_recv = Decimal(10) ** -recv_prec
+        q_pay = Decimal(10) ** -pay_prec
+        recv_amt = recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
+        pay_amt = pay_amt_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
+
+        # Идемпотентность: одно сообщение → одна отмена
+        idem_left = f"cancel:{chat_id}:{msg.message_id}:recv"
+        idem_right = f"cancel:{chat_id}:{msg.message_id}:pay"
+
+        try:
+            # Отмена = инверсия изначальных ног
+            # Левая нога
+            if recv_is_deposit:
+                # изначально был deposit → отмена = withdraw (знак «-» в уведомлении)
+                await self.repo.withdraw(
+                    client_id=client_id,
+                    currency_code=recv_code,
+                    amount=recv_amt,
+                    comment=f"cancel req {req_id_s}",
+                    source="exchange_cancel",
+                    idempotency_key=idem_left,
+                )
+                recv_op_sign = "-"
+            else:
+                # изначально был withdraw → отмена = deposit (знак «+»)
+                await self.repo.deposit(
+                    client_id=client_id,
+                    currency_code=recv_code,
+                    amount=recv_amt,
+                    comment=f"cancel req {req_id_s}",
+                    source="exchange_cancel",
+                    idempotency_key=idem_left,
+                )
+                recv_op_sign = "+"
+
+            # Правая нога
+            if pay_is_withdraw:
+                # изначально был withdraw → отмена = deposit (знак «+»)
+                await self.repo.deposit(
+                    client_id=client_id,
+                    currency_code=pay_code,
+                    amount=pay_amt,
+                    comment=f"cancel req {req_id_s}",
+                    source="exchange_cancel",
+                    idempotency_key=idem_right,
+                )
+                pay_op_sign = "+"
+            else:
+                # изначально был deposit → отмена = withdraw (знак «-»)
+                await self.repo.withdraw(
+                    client_id=client_id,
+                    currency_code=pay_code,
+                    amount=pay_amt,
+                    comment=f"cancel req {req_id_s}",
+                    source="exchange_cancel",
+                    idempotency_key=idem_right,
+                )
+                pay_op_sign = "-"
+        except Exception as e:
+            await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
+            return
+
+        # правим сообщение — убираем клавиатуру и помечаем отмену
+        try:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+            new_text = f"{msg.text}\n----\nОтмена: <code>{ts}</code>"
+            await msg.edit_text(new_text, parse_mode="HTML", reply_markup=None)
+        except Exception:
+            try:
+                await msg.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
+
+        # уведомление в заявочный чат
+        # --- внутри handle_cancel_callback ---
+        if self.request_chat_id:
+            try:
+                await post_request_message(
+                    bot=cq.bot,
+                    request_chat_id=self.request_chat_id,
+                    text=(
+                        f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
+                        #f"Удалить строки в Google Sheets (Покупка/Продажа) с номером <b>{html.escape(req_id_s)}</b>?"
+                    ),
+                    reply_markup=None#delete_from_table_keyboard(req_id=req_id_s),
+                )
+            except Exception:
+                pass
+
+        # Итог клиенту: показать операции и текущие балансы по обеим валютам
+        accounts2 = await self.repo.snapshot_wallet(client_id)
+        acc_recv2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == recv_code.upper()), None)
+        acc_pay2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == pay_code.upper()), None)
+
+        pretty_recv_op = format_amount_core(recv_amt, recv_prec)
+        pretty_pay_op = format_amount_core(pay_amt, pay_prec)
+
+        if acc_recv2:
+            recv_bal = Decimal(str(acc_recv2["balance"]))
+            recv_prec2 = int(acc_recv2["precision"])
+            pretty_recv_bal = format_amount_core(recv_bal, recv_prec2)
+        else:
+            pretty_recv_bal = "—"
+
+        if acc_pay2:
+            pay_bal = Decimal(str(acc_pay2["balance"]))
+            pay_prec2 = int(acc_pay2["precision"])
+            pretty_pay_bal = format_amount_core(pay_bal, pay_prec2)
+        else:
+            pretty_pay_bal = "—"
+
+        text_client = (
+            f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
+            f"Операция по {recv_code.lower()}: <code>{recv_op_sign}{pretty_recv_op} {recv_code.lower()}</code>\n"
+            f"Баланс: <code>{pretty_recv_bal} {recv_code.lower()}</code>\n\n"
+            f"Операция по {pay_code.lower()}: <code>{pay_op_sign}{pretty_pay_op} {pay_code.lower()}</code>\n"
+            f"Баланс: <code>{pretty_pay_bal} {pay_code.lower()}</code>"
+        )
+        await cq.message.answer(text_client, parse_mode="HTML")
+        await cq.answer("Заявка отменена")
+
     # ================================================================
     # Создание новой заявки с проведением двух ног обмена
     # ================================================================
@@ -509,10 +685,9 @@ class AbstractExchangeHandler(ABC):
                 "----",
                 f"<b>Создал</b>: <b>{html.escape(creator_name)}</b>",
             ]
-
             request_text = "\n".join(request_lines)
 
-            # 6) проведение операций
+            # 6) проведение операций (с идемпотентностью)
             idem_recv = f"{chat_id}:{message.message_id}:recv"
             idem_pay = f"{chat_id}:{message.message_id}:pay"
 
@@ -583,7 +758,7 @@ class AbstractExchangeHandler(ABC):
                     await message.answer(f"Не удалось выполнить обмен: {leg_err}")
                     return
 
-            # 7) клиенту — ответом на исходную команду (тред) + кнопка «Отменить заявку»
+            # 7) клиенту — ответом на исходную команду + кнопка «Отменить заявку»
             try:
                 sent = await message.answer(
                     client_text,
@@ -594,7 +769,7 @@ class AbstractExchangeHandler(ABC):
             except Exception:
                 sent = None
 
-            # 7.1) связываем команду и сообщение бота
+            # связь «команда → сообщение бота»
             if sent is not None:
                 try:
                     req_index.remember(
@@ -606,7 +781,7 @@ class AbstractExchangeHandler(ABC):
                 except Exception:
                     pass
 
-            # 7.2) заявочный чат — без кнопок
+            # 8) заявочный чат — без кнопок
             if self.request_chat_id:
                 try:
                     await post_request_message(
@@ -618,7 +793,7 @@ class AbstractExchangeHandler(ABC):
                 except Exception:
                     pass
 
-            # 8) счета (ненулевые) после операции
+            # 9) счета (ненулевые) после операции
             accounts2 = await self.repo.snapshot_wallet(client_id)
             compact = format_wallet_compact(accounts2, only_nonzero=True)
             if compact == "Пусто":
