@@ -13,6 +13,7 @@ from handlers.clients import ClientsHandler
 from handlers.cross import CrossRateHandler
 from handlers.debug import debug_router
 from handlers.managers import ManagersHandler
+from handlers.request_table_delete import get_table_delete_router
 from handlers.usdt_wallet import UsdtWalletHandler
 from middlewares.dedup import DedupMiddleware
 
@@ -26,7 +27,6 @@ from handlers.calc import CalcHandler
 from handlers.wallets import WalletsHandler
 from handlers.nonzero import NonZeroHandler
 from handlers.accept_short import AcceptShortHandler
-from utils.requests import get_request_router, get_issue_router
 from utils.offices import OFFICE_CARDS
 from utils.requests import get_issue_router
 from handlers.request_table_done import get_table_done_router
@@ -95,12 +95,12 @@ class BotApp:
         # остальные — с repo
         self.nonzero_handler = NonZeroHandler(self.repo)
 
-        # WalletsHandler
+        # WalletsHandler (поддержка касс города + перенос в чат клиента)
         self.wallets_handler = WalletsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
-            ignore_chat_ids=ignore_chat_ids,
+            ignore_chat_ids=None,
             city_cash_chat_ids=city_cash_chat_ids,
         )
 
@@ -109,7 +109,7 @@ class BotApp:
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
             request_chat_id=request_chat_id,
-            ignore_chat_ids=ignore_chat_ids,
+            ignore_chat_ids=None,
         )
 
         # CashRequestsHandler (заявки /депр /выдр с городами)
@@ -148,11 +148,12 @@ class BotApp:
         self.dp.include_router(self.nonzero_handler.router)
         self.dp.include_router(self.wallets_handler.router)
 
-        # роутер чата заявок (если задан)
+        # Роутер чата заявок (если задан): и занесение в таблицу, и удаление по подтверждению
         if request_chat_id:
-            self.dp.include_router(get_request_router(allowed_chat_ids=[request_chat_id]))
+            self.dp.include_router(get_table_done_router(request_chat_ids=[request_chat_id]))
+            self.dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
 
-        # роутер «Выдано/Issue»
+        # Роутер «Выдано/Issue» (если ещё используется где-то отдельно)
         self.dp.include_router(get_issue_router(
             repo=self.repo,
             admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],

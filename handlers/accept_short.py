@@ -1,15 +1,11 @@
-# handlers/accept_short.py
 from __future__ import annotations
 
-import html
 import re
-from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Optional, Tuple
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 
 from db_asyncpg.repo import Repo
 from utils.auth import (
@@ -18,9 +14,6 @@ from utils.auth import (
 )
 from utils.calc import evaluate, CalcError
 from utils.exchange_base import AbstractExchangeHandler
-from utils.formatting import format_amount_core
-from utils.info import get_chat_name
-from utils.requests import post_request_message
 
 
 def _fmt_rate(d: Decimal) -> str:
@@ -28,46 +21,12 @@ def _fmt_rate(d: Decimal) -> str:
     return s.rstrip("0").rstrip(".") if "." in s else s
 
 
-# Ищем номер заявки в тексте сообщения бота
-_RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.IGNORECASE)
-
-# Для парсинга сумм из текста заявки (нужно для отмены)
-_RE_GET = re.compile(r"^\s*Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
-_RE_GIVE = re.compile(r"^\s*Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
-_SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
-
-
-def _parse_amt_code(blob: str) -> Optional[Tuple[Decimal, str]]:
-    """'150 000 rub' → (Decimal('150000'), 'RUB')"""
-    try:
-        amt_str, code = blob.rsplit(" ", 1)
-    except ValueError:
-        return None
-    for ch in _SEP:
-        amt_str = amt_str.replace(ch, "")
-    amt_str = amt_str.replace(",", ".").strip()
-    try:
-        amt = Decimal(amt_str)
-    except InvalidOperation:
-        return None
-    return amt, code.strip().upper()
-
-
-def _cancel_kb(req_id: int | str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Отменить заявку", callback_data=f"req_cancel:{req_id}")]
-        ]
-    )
-
-
 class AcceptShortHandler(AbstractExchangeHandler):
     """
     /пд|/пе|/пт|/пр|/пб <recv_amount_expr> <од|ое|от|ор|об> <pay_amount_expr> [комментарий]
 
-    Принимаем слева — списываем у клиента; отдаём справа — зачисляем клиенту.
-    Если команда отправлена в ответ на сообщение с заявкой (бота ИЛИ исходную команду) —
-    редактируем существующую заявку (только менеджеры/админы).
+    Принимаем слева — СПИСЫВАЕМ у клиента; отдаём справа — ЗАЧИСЛЯЕМ клиенту.
+    Если команда отправлена ответом на карточку бота — редактируем заявку.
     """
     RECV_MAP = {"пд": "USD", "пе": "EUR", "пт": "USDT", "пр": "RUB", "пб": "USDW", "прмск": "РУБМСК", "прспб": "РУБСПБ",
                 "прпер": "РУБПЕР", "пп": "EUR500"}
@@ -75,13 +34,13 @@ class AcceptShortHandler(AbstractExchangeHandler):
                "орпер": "РУБПЕР", "оп": "EUR500"}
 
     def __init__(
-        self,
-        repo: Repo,
-        admin_chat_ids: set[int] | None = None,
-        admin_user_ids: set[int] | None = None,
-        request_chat_id: int | None = None,
-        *,
-        ignore_chat_ids: set[int] | None = None,  # NEW: чаты, где игнорируем короткие команды
+            self,
+            repo: Repo,
+            admin_chat_ids: set[int] | None = None,
+            admin_user_ids: set[int] | None = None,
+            request_chat_id: int | None = None,
+            *,
+            ignore_chat_ids: set[int] | None = None,
     ) -> None:
         super().__init__(repo, request_chat_id=request_chat_id)
         self.admin_chat_ids = set(admin_chat_ids or [])
@@ -91,15 +50,15 @@ class AcceptShortHandler(AbstractExchangeHandler):
         self._register()
 
     async def _cmd_accept_short(self, message: Message) -> None:
-        # Игнорируем команды в «шумных» чатах (заявки/выдачи и т.п.)
+        # Игнорируем в "шумных" чатах
         if self.ignore_chat_ids and message.chat and message.chat.id in self.ignore_chat_ids:
             return
 
-        # доступ: админ-чат / админ-пользователь / менеджер
+        # доступ
         if not await require_manager_or_admin_message(
-            self.repo, message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
+                self.repo, message,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
         ):
             return
         RUB_CODES = {"RUB", "РУБМСК", "РУБСПБ", "РУБПЕР"}
@@ -168,7 +127,7 @@ class AcceptShortHandler(AbstractExchangeHandler):
         q_recv = Decimal(10) ** -recv_prec
         q_pay = Decimal(10) ** -pay_prec
         recv_amount = recv_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amount = pay_raw.quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_amount = pay_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
         if recv_amount == 0 or pay_amount == 0:
             await message.answer("Сумма слишком мала для точности выбранных валют.")
             return
@@ -188,7 +147,6 @@ class AcceptShortHandler(AbstractExchangeHandler):
                 await message.answer("Курс невалидный.")
                 return
             rate_str = _fmt_rate(rate.quantize(Decimal("1e-8")))
-            print(rate_str)
         except (InvalidOperation, ZeroDivisionError):
             await message.answer("Ошибка расчёта курса.")
             return
@@ -204,8 +162,8 @@ class AcceptShortHandler(AbstractExchangeHandler):
             pay_prec=pay_prec,
             rate_str=rate_str,
             user_note=(user_note or None),
-            recv_is_deposit=False,   # принимаем — списываем у клиента
-            pay_is_withdraw=False,   # отдаём — зачисляем клиенту
+            recv_is_deposit=False,  # принимаем — списываем
+            pay_is_withdraw=False,  # отдаём — зачисляем
         )
         if handled:
             return
@@ -217,12 +175,12 @@ class AcceptShortHandler(AbstractExchangeHandler):
             recv_amount_expr=recv_amount_expr,
             pay_code=pay_code,
             pay_amount_expr=pay_amount_expr,
-            recv_is_deposit=False,   # принимаем — списываем у клиента
-            pay_is_withdraw=False,   # отдаём — зачисляем клиенту
+            recv_is_deposit=False,  # принимаем — списываем
+            pay_is_withdraw=False,  # отдаём — зачисляем
             note=user_note or None,
         )
 
-    # ====== КОЛЛБЭК ОТМЕНЫ ЗАЯВКИ ======
+    # ====== КОЛЛБЭК ОТМЕНЫ ЗАЯВКИ (делегируем в базовый класс) ======
     async def _cb_cancel(self, cq: CallbackQuery) -> None:
         if not await require_manager_or_admin_callback(
                 self.repo, cq,
@@ -231,139 +189,12 @@ class AcceptShortHandler(AbstractExchangeHandler):
         ):
             return
 
-        msg = cq.message
-        if not msg or not msg.text:
-            await cq.answer("Нет сообщения", show_alert=True)
-            return
-
-        # извлечём req_id из callback_data (формат: req_cancel:<id>)
-        try:
-            _, req_id_s = (cq.data or "").split(":", 1)
-        except Exception:
-            await cq.answer("Некорректные данные", show_alert=True)
-            return
-
-        # парсим суммы/коды из текста
-        m_get = _RE_GET.search(msg.text)
-        m_give = _RE_GIVE.search(msg.text)
-        if not (m_get and m_give):
-            await cq.answer("Не удалось распознать заявку", show_alert=True)
-            return
-
-        p_get = _parse_amt_code(m_get.group(1))
-        p_give = _parse_amt_code(m_give.group(1))
-        if not (p_get and p_give):
-            await cq.answer("Не удалось распознать суммы", show_alert=True)
-            return
-
-        recv_amt_raw, recv_code = p_get  # «Получаем» (слева)
-        pay_amt_raw, pay_code = p_give  # «Отдаём»   (справа)
-
-        chat_id = msg.chat.id
-        chat_name = get_chat_name(msg)
-        client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
-        accounts = await self.repo.snapshot_wallet(client_id)
-
-        def _find_acc(code: str):
-            return next((r for r in accounts if str(r["currency_code"]).upper() == code.upper()), None)
-
-        acc_recv = _find_acc(recv_code)
-        acc_pay = _find_acc(pay_code)
-        if not acc_recv or not acc_pay:
-            await cq.answer("Счёта клиента изменились. Проверьте /кошелек", show_alert=True)
-            return
-
-        recv_prec = int(acc_recv["precision"])
-        pay_prec = int(acc_pay["precision"])
-        q_recv = Decimal(10) ** -recv_prec
-        q_pay = Decimal(10) ** -pay_prec
-        recv_amt = recv_amt_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_amt = pay_amt_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
-
-        # Идемпотентные ключи отмены по id сообщения с заявкой
-        idem_left = f"cancel:{chat_id}:{msg.message_id}:recv"
-        idem_right = f"cancel:{chat_id}:{msg.message_id}:pay"
-
-        try:
-            # В этой команде изначально было: LEFT = withdraw, RIGHT = deposit.
-            # Откат: LEFT → deposit (вернуть), RIGHT → withdraw (забрать).
-            await self.repo.deposit(
-                client_id=client_id,
-                currency_code=recv_code,
-                amount=recv_amt,
-                comment=f"cancel req {req_id_s}",
-                source="exchange_cancel",
-                idempotency_key=idem_left,
-            )
-            await self.repo.withdraw(
-                client_id=client_id,
-                currency_code=pay_code,
-                amount=pay_amt,
-                comment=f"cancel req {req_id_s}",
-                source="exchange_cancel",
-                idempotency_key=idem_right,
-            )
-        except Exception as e:
-            await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
-            return
-
-        # правим сообщение — убираем клавиатуру и помечаем отмену
-        try:
-            ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-            new_text = f"{msg.text}\n----\nОтмена: <code>{ts}</code>"
-            await msg.edit_text(new_text, parse_mode="HTML", reply_markup=None)
-        except Exception:
-            try:
-                await msg.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-
-        # уведомление в заявочный чат (кратко)
-        if self.request_chat_id:
-            try:
-                await post_request_message(
-                    bot=cq.bot,
-                    request_chat_id=self.request_chat_id,
-                    text=f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.",
-                    reply_markup=None,
-                )
-            except Exception:
-                pass
-
-        # Итоговое сообщение клиенту: операции по обеим валютам + их балансы
-        accounts2 = await self.repo.snapshot_wallet(client_id)
-        acc_recv2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == recv_code.upper()), None)
-        acc_pay2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == pay_code.upper()), None)
-
-        # суммы операции в «читаемом» виде
-        pretty_recv_op = format_amount_core(recv_amt, recv_prec)  # будет со знаками без префикса; префикс добавим сами
-        pretty_pay_op = format_amount_core(pay_amt, pay_prec)
-
-        # текущие балансы
-        if acc_recv2:
-            recv_bal = Decimal(str(acc_recv2["balance"]))
-            recv_prec2 = int(acc_recv2["precision"])
-            pretty_recv_bal = format_amount_core(recv_bal, recv_prec2)
-        else:
-            pretty_recv_bal = "—"
-
-        if acc_pay2:
-            pay_bal = Decimal(str(acc_pay2["balance"]))
-            pay_prec2 = int(acc_pay2["precision"])
-            pretty_pay_bal = format_amount_core(pay_bal, pay_prec2)
-        else:
-            pretty_pay_bal = "—"
-
-        text_client = (
-            f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
-            f"Операция по {recv_code.lower()}: <code>+{pretty_recv_op} {recv_code.lower()}</code>\n"
-            f"Баланс: <code>{pretty_recv_bal} {recv_code.lower()}</code>\n\n"
-            f"Операция по {pay_code.lower()}: <code>-{pretty_pay_op} {pay_code.lower()}</code>\n"
-            f"Баланс: <code>{pretty_pay_bal} {pay_code.lower()}</code>"
+        # В этой команде изначально было: LEFT = withdraw, RIGHT = deposit
+        await self.handle_cancel_callback(
+            cq,
+            recv_is_deposit=False,
+            pay_is_withdraw=False,
         )
-        await cq.message.answer(text_client, parse_mode="HTML")
-
-        await cq.answer("Заявка отменена")
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_accept_short, Command("пд"))
@@ -379,5 +210,4 @@ class AcceptShortHandler(AbstractExchangeHandler):
             self._cmd_accept_short,
             F.text.regexp(r"(?iu)^/(пд|пе|пт|пр|пб|прмск|прспб|прпер|пп)(?:@\w+)?\b"),
         )
-        # обработчик коллбэка отмены — ВЕРНУЛИ
         self.router.callback_query.register(self._cb_cancel, F.data.startswith("req_cancel:"))
