@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import re
+from datetime import datetime
+
 from aiogram.types import CallbackQuery
 
 from db_asyncpg.repo import Repo
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.auth import require_manager_or_admin_callback
+
+
+_RE_DONE_LINE = re.compile(
+    r"^\s*Сделка\s+проведена\s*:\s*(?:<code>)?.+?(?:</code>)?\s*$",
+    re.IGNORECASE | re.M,
+)
 
 
 class RequestDealDoneService:
@@ -24,6 +33,29 @@ class RequestDealDoneService:
         self.admin_chat_ids = set(admin_chat_ids)
         self.admin_user_ids = set(admin_user_ids)
 
+    @staticmethod
+    def _reply_html_text_and_kind(msg) -> tuple[str, bool]:
+        if msg.caption is not None and not msg.text:
+            return (msg.html_caption or msg.caption or ""), True
+        return (msg.html_text or msg.text or ""), False
+
+    @staticmethod
+    def _upsert_done_line(text: str) -> str:
+        src = text or ""
+        done_line = f"✅ Сделка проведена: <code>{datetime.now().strftime('%Y-%m-%d %H:%M')}</code>"
+
+        if _RE_DONE_LINE.search(src):
+            return _RE_DONE_LINE.sub(done_line, src)
+
+        marker = "\n----\nСоздал"
+        idx = src.find(marker)
+        if idx != -1:
+            return src[:idx] + "\n" + done_line + src[idx:]
+
+        if src.endswith("\n"):
+            return src + done_line
+        return src + "\n" + done_line
+
     async def handle(self, cq: CallbackQuery) -> None:
         msg = cq.message
         if not msg:
@@ -40,7 +72,7 @@ class RequestDealDoneService:
             return
 
         if not self.router_service.is_request_chat(msg.chat.id):
-            await cq.answer("Кнопка доступна только в чате заявок.", show_alert=True)
+            await cq.answer("Кнопка доступна только в чате сделок.", show_alert=True)
             return
 
         data = (cq.data or "").strip()
@@ -59,22 +91,48 @@ class RequestDealDoneService:
             await cq.answer("Не удалось определить город.", show_alert=True)
             return
 
+        # 1. Удаляем из расписания, если запись там есть.
         removed = await self.schedule_service.remove_entry(req_id=req_id)
-        if not removed:
-            await cq.answer("Запись в расписании не найдена.", show_alert=True)
-            return
+
+        # 2. Обновляем board расписания только если запись реально была.
+        if removed:
+            try:
+                await self.schedule_service.sync_board(
+                    bot=cq.bot,
+                    city=city,
+                )
+            except Exception:
+                pass
+
+        # 3. Обновляем саму заявку: ставим статус "Сделка проведена"
+        old_text, is_caption = self._reply_html_text_and_kind(msg)
+        new_text = self._upsert_done_line(old_text)
 
         try:
-            await self.schedule_service.sync_board(
-                bot=cq.bot,
-                city=city,
-            )
+            if is_caption:
+                await cq.bot.edit_message_caption(
+                    chat_id=msg.chat.id,
+                    message_id=msg.message_id,
+                    caption=new_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            else:
+                await cq.bot.edit_message_text(
+                    chat_id=msg.chat.id,
+                    message_id=msg.message_id,
+                    text=new_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
         except Exception:
-            pass
+            # если редактирование текста не удалось — хотя бы уберём кнопку
+            try:
+                await msg.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
 
-        try:
-            await msg.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-        await cq.answer("Сделка завершена")
+        if removed:
+            await cq.answer("Сделка завершена")
+        else:
+            await cq.answer("Сделка проведена")

@@ -19,7 +19,10 @@ from utils.request_text_parser import (
     upsert_time_line,
 )
 
-_RE_TIME_CMD = re.compile(r"^/время(?:@\w+)?\s+([0-2]\d:[0-5]\d)\s*$", re.IGNORECASE)
+_RE_TIME_CMD = re.compile(
+    r"^/время(?:@\w+)?\s+((?:[01]?\d|2[0-3]):[0-5]\d)\s*$",
+    re.IGNORECASE,
+)
 
 
 class RequestTimeService:
@@ -68,7 +71,9 @@ class RequestTimeService:
             await message.answer("Формат: /время 10:00")
             return
 
-        hhmm = m.group(1)
+        hhmm_raw = m.group(1)
+        hh, mm = hhmm_raw.split(":")
+        hhmm = f"{int(hh):02d}:{mm}"
 
         reply = getattr(message, "reply_to_message", None)
         if not reply:
