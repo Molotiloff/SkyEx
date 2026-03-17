@@ -16,6 +16,7 @@ from utils.formatting import format_amount_core
 from utils.info import _fmt_rate, get_chat_name
 from utils.req_index import req_index
 from utils.requests import post_request_message
+import random
 
 # --- Вспомогательное: парсинг строк из карточки заявки ---
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
