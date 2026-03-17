@@ -21,6 +21,15 @@ class RequestScheduleService:
     def _norm_city(city: str) -> str:
         return (city or "").strip().lower()
 
+    @staticmethod
+    def _decorate_line(line_text: str) -> str:
+        text = (line_text or "").strip()
+        if text.startswith("-"):
+            return f"🟥 {text}"
+        if text.startswith("+"):
+            return f"🟩 {text}"
+        return text
+
     async def upsert_entry(self, entry: ScheduleEntry) -> None:
         await self.repo.upsert_request_schedule_entry(
             req_id=entry.req_id,
@@ -46,7 +55,8 @@ class RequestScheduleService:
             return "\n".join(lines)
 
         for item in rows:
-            lines.append(f"<code>{item['hhmm']}</code> — {item['line_text']}")
+            decorated = self._decorate_line(item["line_text"])
+            lines.append(f"<code>{item['hhmm']}</code> — {decorated}")
 
         return "\n".join(lines)
 
