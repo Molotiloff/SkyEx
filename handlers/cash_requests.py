@@ -49,6 +49,7 @@ class CashRequestsHandler:
         self.request_service = CashRequestService(
             repo=repo,
             router_service=self.router_service,
+            schedule_service=self.schedule_service,
             cmd_map=CMD_MAP,
             fx_cmd_map=FX_CMD_MAP,
             admin_chat_ids=self.admin_chat_ids,

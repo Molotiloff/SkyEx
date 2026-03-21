@@ -45,7 +45,7 @@ class FxCardSnapshot:
 class ScheduleEntry:
     req_id: str
     city: str
-    hhmm: str
+    hhmm: str | None
     request_kind: str
     line_text: str
     client_name: str

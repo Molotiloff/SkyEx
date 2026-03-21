@@ -126,14 +126,6 @@ class RequestTimeService:
             )
             return
 
-        schedule_chat_id = self.router_service.pick_schedule_chat_for_city(city)
-        if not schedule_chat_id:
-            await message.answer(
-                f"Для города '{city}' не настроен чат расписания. "
-                "Проверь CITY_SCHEDULE_CHATS."
-            )
-            return
-
         plain_reply = self._reply_plain(reply)
 
         line_text = build_schedule_line_from_plain(plain_reply, fallback_client="—")
@@ -146,7 +138,6 @@ class RequestTimeService:
             return
 
         if line_text:
-            src = extract_edit_source(plain_reply)
             await self.schedule_service.upsert_entry(
                 ScheduleEntry(
                     req_id=src.req_id,
@@ -160,12 +151,13 @@ class RequestTimeService:
                 )
             )
 
-            try:
-                await self.schedule_service.sync_board(
-                    bot=message.bot,
-                    city=city,
-                )
-            except Exception:
-                pass
+            if self.router_service.pick_schedule_chat_for_city(city):
+                try:
+                    await self.schedule_service.sync_board(
+                        bot=message.bot,
+                        city=city,
+                    )
+                except Exception:
+                    pass
 
         await message.answer(f"✅ Время добавлено: {hhmm}")

@@ -22,6 +22,11 @@ class RequestScheduleService:
         return (city or "").strip().lower()
 
     @staticmethod
+    def _norm_hhmm(hhmm: str | None) -> str | None:
+        value = (hhmm or "").strip()
+        return value or None
+
+    @staticmethod
     def _decorate_line(line_text: str) -> str:
         text = (line_text or "").strip()
         if text.startswith("-"):
@@ -34,7 +39,7 @@ class RequestScheduleService:
         await self.repo.upsert_request_schedule_entry(
             req_id=entry.req_id,
             city=self._norm_city(entry.city),
-            hhmm=entry.hhmm,
+            hhmm=self._norm_hhmm(entry.hhmm),
             request_kind=entry.request_kind,
             line_text=entry.line_text,
             client_name=entry.client_name,
@@ -49,14 +54,35 @@ class RequestScheduleService:
         city_norm = self._norm_city(city)
         rows = await self.repo.list_request_schedule_entries(city=city_norm)
 
-        lines = ["📋 <b>Ближайшие клиенты</b>", ""]
-        if not rows:
-            lines.append("Пока пусто")
-            return "\n".join(lines)
+        with_time: list[dict] = []
+        without_time: list[dict] = []
 
         for item in rows:
-            decorated = self._decorate_line(item["line_text"])
-            lines.append(f"<code>{item['hhmm']}</code> — {decorated}")
+            hhmm = self._norm_hhmm(item.get("hhmm"))
+            if hhmm is not None:
+                row = dict(item)
+                row["hhmm"] = hhmm
+                with_time.append(row)
+            else:
+                without_time.append(dict(item))
+
+        with_time.sort(key=lambda x: (x["hhmm"], x.get("updated_at"), x.get("req_id")))
+        without_time.sort(key=lambda x: (x.get("updated_at"), x.get("req_id")))
+
+        lines = ["📋 <b>Ближайшие клиенты</b>", ""]
+
+        if with_time:
+            for item in with_time:
+                decorated = self._decorate_line(item["line_text"])
+                lines.append(f"<code>{item['hhmm']}</code> — {decorated}")
+        else:
+            lines.append("Пока пусто")
+
+        if without_time:
+            lines += ["", "Клиенты без назначенного времени", ""]
+            for item in without_time:
+                decorated = self._decorate_line(item["line_text"])
+                lines.append(decorated)
 
         return "\n".join(lines)
 
@@ -79,7 +105,13 @@ class RequestScheduleService:
                 )
                 return
             except Exception:
-                pass
+                try:
+                    await bot.delete_message(
+                        chat_id=int(board["board_chat_id"]),
+                        message_id=int(board["board_message_id"]),
+                    )
+                except Exception:
+                    pass
 
         msg = await bot.send_message(
             chat_id=int(schedule_chat_id),

@@ -8,8 +8,9 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
-from services.cash_requests.models import RequestContext
+from services.cash_requests.models import RequestContext, ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
+from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.calc import CalcError, evaluate
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
@@ -29,6 +30,7 @@ from utils.request_cards import (
 from utils.request_parsing import ParsedRequest, parse_dep_wd, parse_fx
 from utils.request_text_parser import (
     extract_edit_source,
+    extract_time_from_card,
     parse_dep_wd_snapshot,
     parse_fx_snapshot,
 )
@@ -40,6 +42,7 @@ class CashRequestService:
         *,
         repo: Repo,
         router_service: RequestRouterService,
+        schedule_service: RequestScheduleService,
         cmd_map: Mapping[str, tuple[str, str]],
         fx_cmd_map: Mapping[str, tuple[str, str, str]],
         admin_chat_ids: set[int],
@@ -47,6 +50,7 @@ class CashRequestService:
     ) -> None:
         self.repo = repo
         self.router_service = router_service
+        self.schedule_service = schedule_service
         self.cmd_map = dict(cmd_map)
         self.fx_cmd_map = dict(fx_cmd_map)
         self.admin_chat_ids = set(admin_chat_ids)
@@ -80,6 +84,31 @@ class CashRequestService:
     def _gen_pin() -> str:
         return f"{random.randint(100, 999)}-{random.randint(100, 999)}"
 
+    @staticmethod
+    def _build_schedule_line(
+        *,
+        kind: str,
+        client_name: str,
+        pretty_amount: str | None = None,
+        code: str | None = None,
+        pretty_in: str | None = None,
+        in_code: str | None = None,
+        pretty_out: str | None = None,
+        out_code: str | None = None,
+    ) -> str | None:
+        client = (client_name or "—").strip() or "—"
+
+        if kind == "dep" and pretty_amount and code:
+            return f"+{pretty_amount} {code.upper()} — {client}"
+
+        if kind == "wd" and pretty_amount and code:
+            return f"-{pretty_amount} {code.upper()} — {client}"
+
+        if kind == "fx" and pretty_in and in_code and pretty_out and out_code:
+            return f"{pretty_in} {in_code.upper()} → {pretty_out} {out_code.upper()} — {client}"
+
+        return None
+
     async def _build_request_context(self, message: Message, city: str) -> RequestContext:
         chat_name = get_chat_name(message)
         client_id = await self.repo.ensure_client(chat_id=message.chat.id, name=chat_name)
@@ -89,6 +118,81 @@ class CashRequestService:
             chat_name=chat_name,
             client_id=client_id,
         )
+
+    async def _sync_schedule_without_time(
+        self,
+        *,
+        req_id: str,
+        city: str,
+        line_text: str,
+        request_kind: str,
+        client_name: str,
+        request_chat_id: int,
+        request_message_id: int,
+        bot,
+    ) -> None:
+        if not line_text:
+            return
+
+        await self.schedule_service.upsert_entry(
+            ScheduleEntry(
+                req_id=req_id,
+                city=city,
+                hhmm=None,
+                request_kind=request_kind,
+                line_text=line_text,
+                client_name=client_name,
+                request_chat_id=request_chat_id,
+                request_message_id=request_message_id,
+            )
+        )
+
+        if self.router_service.pick_schedule_chat_for_city(city):
+            try:
+                await self.schedule_service.sync_board(
+                    bot=bot,
+                    city=city,
+                )
+            except Exception:
+                pass
+
+    async def _sync_schedule_keep_existing_time(
+        self,
+        *,
+        req_id: str,
+        city: str,
+        hhmm: str | None,
+        line_text: str,
+        request_kind: str,
+        client_name: str,
+        request_chat_id: int,
+        request_message_id: int,
+        bot,
+    ) -> None:
+        if not line_text:
+            return
+
+        await self.schedule_service.upsert_entry(
+            ScheduleEntry(
+                req_id=req_id,
+                city=city,
+                hhmm=hhmm,
+                request_kind=request_kind,
+                line_text=line_text,
+                client_name=client_name,
+                request_chat_id=request_chat_id,
+                request_message_id=request_message_id,
+            )
+        )
+
+        if self.router_service.pick_schedule_chat_for_city(city):
+            try:
+                await self.schedule_service.sync_board(
+                    bot=bot,
+                    city=city,
+                )
+            except Exception:
+                pass
 
     def help_text(self) -> str:
         cities = ", ".join(sorted(self.router_service.city_keys)) if self.router_service.city_keys else "—"
@@ -213,6 +317,12 @@ class CashRequestService:
                 audit_lines=audit_lines_for_request_chat(audit),
                 changed_notice=False,
             )
+            schedule_line = self._build_schedule_line(
+                kind=parsed.kind,
+                client_name=ctx.chat_name,
+                pretty_amount=pretty_amount,
+                code=parsed.code,
+            )
         else:
             acc_in = next((r for r in accounts if str(r["currency_code"]).upper() == parsed.in_code), None)
             acc_out = next((r for r in accounts if str(r["currency_code"]).upper() == parsed.out_code), None)
@@ -234,13 +344,16 @@ class CashRequestService:
             ain = evaluate(parsed.amt_in_expr).quantize(q_in).quantize(Decimal("1"))
             aout = evaluate(parsed.amt_out_expr).quantize(q_out).quantize(Decimal("1"))
 
+            pretty_in = format_amount_core(ain, prec_in)
+            pretty_out = format_amount_core(aout, prec_out)
+
             data_fx = CardDataFx(
                 req_id=req_id,
                 city=ctx.city,
                 in_code=parsed.in_code,
                 out_code=parsed.out_code,
-                pretty_in=format_amount_core(ain, prec_in),
-                pretty_out=format_amount_core(aout, prec_out),
+                pretty_in=pretty_in,
+                pretty_out=pretty_out,
                 tg_from=tg_from,
                 tg_to=tg_to,
                 pin_code=pin_code,
@@ -253,19 +366,39 @@ class CashRequestService:
                 audit_lines=audit_lines_for_request_chat(audit),
                 changed_notice=False,
             )
+            schedule_line = self._build_schedule_line(
+                kind="fx",
+                client_name=ctx.chat_name,
+                pretty_in=pretty_in,
+                in_code=parsed.in_code,
+                pretty_out=pretty_out,
+                out_code=parsed.out_code,
+            )
 
         await message.answer(text_client, parse_mode="HTML", reply_markup=None)
 
         if ctx.request_chat_id:
             try:
-                await message.bot.send_message(
+                sent_city = await message.bot.send_message(
                     chat_id=ctx.request_chat_id,
                     text=text_city,
                     parse_mode="HTML",
                     reply_markup=city_markup,
                 )
             except Exception:
-                pass
+                sent_city = None
+
+            if sent_city and schedule_line:
+                await self._sync_schedule_without_time(
+                    req_id=req_id,
+                    city=ctx.city,
+                    line_text=schedule_line,
+                    request_kind=parsed.kind,
+                    client_name=ctx.chat_name,
+                    request_chat_id=sent_city.chat.id,
+                    request_message_id=sent_city.message_id,
+                    bot=message.bot,
+                )
 
     async def _edit_existing_request(
         self,
@@ -341,6 +474,12 @@ class CashRequestService:
                 audit_lines=audit_lines_for_request_chat(audit),
                 changed_notice=True,
             )
+            schedule_line = self._build_schedule_line(
+                kind=parsed.kind,
+                client_name=ctx.chat_name,
+                pretty_amount=pretty_amount,
+                code=snap.code,
+            )
         else:
             snap = parse_fx_snapshot(old_text, city=ctx.city)
             if not snap:
@@ -377,13 +516,16 @@ class CashRequestService:
             ain_new = ain_raw_new.quantize(q_in).quantize(Decimal("1"))
             aout_new = aout_raw_new.quantize(q_out).quantize(Decimal("1"))
 
+            pretty_in = format_amount_core(ain_new, prec_in)
+            pretty_out = format_amount_core(aout_new, prec_out)
+
             data_fx = CardDataFx(
                 req_id=src.req_id,
                 city=ctx.city,
                 in_code=snap.in_code,
                 out_code=snap.out_code,
-                pretty_in=format_amount_core(ain_new, prec_in),
-                pretty_out=format_amount_core(aout_new, prec_out),
+                pretty_in=pretty_in,
+                pretty_out=pretty_out,
                 tg_from=tg_from,
                 tg_to=tg_to,
                 pin_code=src.pin_code,
@@ -395,6 +537,14 @@ class CashRequestService:
                 chat_name=ctx.chat_name,
                 audit_lines=audit_lines_for_request_chat(audit),
                 changed_notice=True,
+            )
+            schedule_line = self._build_schedule_line(
+                kind="fx",
+                client_name=ctx.chat_name,
+                pretty_in=pretty_in,
+                in_code=snap.in_code,
+                pretty_out=pretty_out,
+                out_code=snap.out_code,
             )
 
         try:
@@ -415,13 +565,26 @@ class CashRequestService:
 
         if ctx.request_chat_id:
             try:
-                await message.bot.send_message(
+                sent_city = await message.bot.send_message(
                     chat_id=ctx.request_chat_id,
                     text=text_city,
                     parse_mode="HTML",
                     reply_markup=city_markup,
                 )
             except Exception:
-                pass
+                sent_city = None
+
+            if sent_city and schedule_line:
+                await self._sync_schedule_keep_existing_time(
+                    req_id=src.req_id,
+                    city=ctx.city,
+                    hhmm=extract_time_from_card(old_text),
+                    line_text=schedule_line,
+                    request_kind=parsed.kind,
+                    client_name=ctx.chat_name,
+                    request_chat_id=sent_city.chat.id,
+                    request_message_id=sent_city.message_id,
+                    bot=message.bot,
+                )
 
         await message.answer("✅ Заявка обновлена.")
