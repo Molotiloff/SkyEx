@@ -1,11 +1,12 @@
-# handlers/balances_clients.py
+from __future__ import annotations
+
 import html
 import re
 from collections import defaultdict
 from decimal import Decimal
 from typing import Iterable
 
-from aiogram import Router, F
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -13,22 +14,16 @@ from db_asyncpg.repo import Repo
 from utils.formatting import format_amount_core
 
 MINUS_CHARS = "-−–—"
-PLUS_CHARS  = "+＋"
+PLUS_CHARS = "+＋"
 
-# Порог для «почти нулевых» остатков (|bal| < THRESHOLD -> пропускаем)
 NEAR_ZERO_THRESHOLD = Decimal("1")
+SCHEDULED_RUB_DEBT_THRESHOLD = Decimal("-1000")
 
-# Алиасы валют (принимаем латиницу и кириллицу, приводим к коду)
 ALIASES = {
-    # RUB
     "RUB": "RUB", "РУБ": "RUB", "РУБЛЬ": "RUB", "РУБЛИ": "RUB", "РУБЛЕЙ": "RUB", "РУБ.": "RUB",
-    # USD
     "USD": "USD", "ДОЛ": "USD", "ДОЛЛ": "USD", "ДОЛЛАР": "USD", "ДОЛЛАРЫ": "USD",
-    # USDT
     "USDT": "USDT", "ЮСДТ": "USDT",
-    # EUR
     "EUR": "EUR", "ЕВРО": "EUR",
-    # USDW (условный «доллар белый»)
     "USDW": "USDW", "ДОЛБ": "USDW", "ДОЛЛБЕЛ": "USDW", "ДОЛБЕЛ": "USDW",
 }
 
@@ -73,87 +68,86 @@ class ClientsBalancesHandler:
         self.router = Router()
         self._register()
 
-    async def _cmd_balances(self, message: Message) -> None:
-        if self.admin_chat_ids and message.chat.id not in self.admin_chat_ids:
-            await message.answer("Команда доступна только в админском чате.")
-            return
-
-        text = (message.text or "")
-
-        # 1) Вид: /бк <валюта> <знак>
-        m_with_sign = re.match(
-            rf"(?iu)^/бк(?:@\w+)?\s+(\S+)\s+([{re.escape(MINUS_CHARS + PLUS_CHARS)}])\s*$",
-            text
-        )
-
-        # 2) Вид: /бк <валюта>   (без знака)
-        m_only_code = re.match(
-            r"(?iu)^/бк(?:@\w+)?\s+(\S+)\s*$",
-            text
-        )
-
+    async def _build_report(
+        self,
+        *,
+        code_filter: str | None = None,
+        sign_filter: str | None = None,
+        min_negative_balance: Decimal | None = None,
+    ) -> list[str]:
         rows = await self.repo.balances_by_client()
 
-        # --- вариант 1: фильтр по валюте и знаку ---
-        if m_with_sign:
-            code_filter = _normalize_code(m_with_sign.group(1))
-            sign_filter = _normalize_sign(m_with_sign.group(2))
+        if code_filter and sign_filter:
+            code_filter = _normalize_code(code_filter)
+            sign_filter = _normalize_sign(sign_filter)
 
             filtered = []
             for r in rows:
                 if str(r["currency_code"]).upper() != code_filter:
                     continue
+
                 bal = Decimal(str(r["balance"]))
+
                 if sign_filter == "+" and bal <= 0:
                     continue
-                if sign_filter == "-" and bal >= 0:
-                    continue
+
+                if sign_filter == "-":
+                    if bal >= 0:
+                        continue
+                    if min_negative_balance is not None and bal >= min_negative_balance:
+                        continue
+
                 filtered.append(r)
 
             if not filtered:
-                await message.answer(
-                    f"Нет клиентов с балансом по {html.escape(code_filter)} со знаком '{sign_filter}'.",
-                    parse_mode="HTML")
-                return
+                if sign_filter == "-" and min_negative_balance is not None:
+                    return [
+                        f"Нет клиентов по {html.escape(code_filter)} "
+                        f"с балансом меньше {html.escape(str(min_negative_balance))}."
+                    ]
 
-            # сортировка:
-            #   для "-" — по возрастанию баланса (самые большие долги первыми);
-            #   для "+" — по убыванию баланса (самые большие остатки первыми).
+                cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
+                return [f"Нет клиентов по {html.escape(code_filter)} ({cmp_html})."]
+
             if sign_filter == "-":
                 filtered.sort(
                     key=lambda r: (
-                        Decimal(str(r["balance"])),              # больше отрицание → раньше
+                        Decimal(str(r["balance"])),
                         (r.get("client_name") or "").lower(),
                     )
                 )
             else:
                 filtered.sort(
                     key=lambda r: (
-                        -Decimal(str(r["balance"])),             # больше баланс → раньше
+                        -Decimal(str(r["balance"])),
                         (r.get("client_name") or "").lower(),
                     )
                 )
 
-            cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
-            out_lines: list[str] = [f"Клиенты по {html.escape(code_filter)} ({cmp_html}):", ""]
+            if sign_filter == "-" and min_negative_balance is not None:
+                header = (
+                    f"Клиенты по {html.escape(code_filter)} "
+                    f"(баланс меньше {html.escape(str(min_negative_balance))}):"
+                )
+            else:
+                cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
+                header = f"Клиенты по {html.escape(code_filter)} ({cmp_html}):"
+
+            out_lines: list[str] = [header, ""]
 
             for r in filtered:
                 name = html.escape(r.get("client_name") or "")
                 bal = Decimal(str(r["balance"]))
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
-                out_lines.append(f"{name}")
+                out_lines.append(name)
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
                 out_lines.append("—————————")
 
-            text_out = "\n".join(out_lines)
-            for chunk in _chunk(text_out):
-                await message.answer(chunk, parse_mode="HTML")
-            return
+            return _chunk("\n".join(out_lines))
 
-        # --- вариант 2: только валюта, без знака (|bal| >= 1) ---
-        if m_only_code:
-            code_filter = _normalize_code(m_only_code.group(1))
+        if code_filter:
+            code_filter = _normalize_code(code_filter)
 
             filtered = []
             for r in rows:
@@ -161,16 +155,15 @@ class ClientsBalancesHandler:
                     continue
                 bal = Decimal(str(r["balance"]))
                 if bal.copy_abs() < NEAR_ZERO_THRESHOLD:
-                    continue  # пропускаем «почти нули»
+                    continue
                 filtered.append(r)
 
             if not filtered:
-                await message.answer(
-                    f"Нет клиентов с балансом по {html.escape(code_filter)} (|баланс| ≥ {NEAR_ZERO_THRESHOLD}).",
-                    parse_mode="HTML")
-                return
+                return [
+                    f"Нет клиентов с балансом по {html.escape(code_filter)} "
+                    f"(|баланс| ≥ {NEAR_ZERO_THRESHOLD})."
+                ]
 
-            # здесь оставляем алфавитную сортировку по имени
             filtered.sort(key=lambda r: (r.get("client_name") or "").lower())
 
             out_lines: list[str] = [
@@ -182,16 +175,12 @@ class ClientsBalancesHandler:
                 bal = Decimal(str(r["balance"]))
                 prec = int(r.get("precision", 2))
                 pretty = html.escape(format_amount_core(bal, prec))
-                out_lines.append(f"{name}")
+                out_lines.append(name)
                 out_lines.append(f"  {pretty} {code_filter.lower()}")
                 out_lines.append("—————————")
 
-            text_out = "\n".join(out_lines)
-            for chunk in _chunk(text_out):
-                await message.answer(chunk, parse_mode="HTML")
-            return
+            return _chunk("\n".join(out_lines))
 
-        # --- вариант 3: все ненулевые балансы по всем валютам ---
         by_client: dict[int, dict] = defaultdict(lambda: {"name": "", "chat_id": None, "items": []})
         for r in rows:
             cid = int(r["client_id"])
@@ -205,25 +194,110 @@ class ClientsBalancesHandler:
             by_client[cid]["items"].append((code, prec, bal))
 
         if not by_client:
-            await message.answer("У всех клиентов нулевые балансы.")
-            return
+            return ["У всех клиентов нулевые балансы."]
 
         out_lines: list[str] = ["Все ненулевые балансы:", ""]
-        for cid, data in sorted(by_client.items(), key=lambda x: (x[1]["name"] or "").lower()):
+        for _, data in sorted(by_client.items(), key=lambda x: (x[1]["name"] or "").lower()):
             name = html.escape(data["name"])
-            out_lines.append(f"{name}")
+            out_lines.append(name)
             for code, prec, bal in sorted(data["items"]):
                 pretty = html.escape(format_amount_core(bal, prec))
                 out_lines.append(f"  {pretty} {code.lower()}")
             out_lines.append("—————————")
 
-        text_out = "\n".join(out_lines)
-        for chunk in _chunk(text_out):
+        return _chunk("\n".join(out_lines))
+
+    async def send_scheduled_negative_balances(
+        self,
+        bot: Bot,
+        *,
+        currencies: Iterable[str] = ("RUB", "USDT"),
+    ) -> None:
+        currencies_norm = [_normalize_code(code) for code in currencies]
+
+        for chat_id in self.admin_chat_ids:
+            await bot.send_message(
+                chat_id=chat_id,
+                text="📊 <b>Ежедневный отчёт по минусовым балансам</b>",
+                parse_mode="HTML",
+            )
+
+            has_any = False
+
+            for code in currencies_norm:
+                min_negative_balance = None
+                if code == "RUB":
+                    min_negative_balance = SCHEDULED_RUB_DEBT_THRESHOLD
+
+                chunks = await self._build_report(
+                    code_filter=code,
+                    sign_filter="-",
+                    min_negative_balance=min_negative_balance,
+                )
+
+                if not chunks:
+                    continue
+
+                if len(chunks) == 1:
+                    text_only = chunks[0].strip().lower()
+                    if text_only.startswith("нет клиентов"):
+                        continue
+
+                has_any = True
+                for chunk in chunks:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=chunk,
+                        parse_mode="HTML",
+                    )
+
+            if not has_any:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text="Минусовых балансов по выбранным валютам нет.",
+                    parse_mode="HTML",
+                )
+
+    async def _cmd_balances(self, message: Message) -> None:
+        if self.admin_chat_ids and message.chat.id not in self.admin_chat_ids:
+            await message.answer("Команда доступна только в админском чате.")
+            return
+
+        text = (message.text or "")
+
+        m_with_sign = re.match(
+            rf"(?iu)^/бк(?:@\w+)?\s+(\S+)\s+([{re.escape(MINUS_CHARS + PLUS_CHARS)}])\s*$",
+            text,
+        )
+        m_only_code = re.match(
+            r"(?iu)^/бк(?:@\w+)?\s+(\S+)\s*$",
+            text,
+        )
+
+        if m_with_sign:
+            code_filter = m_with_sign.group(1)
+            sign_filter = m_with_sign.group(2)
+            chunks = await self._build_report(
+                code_filter=code_filter,
+                sign_filter=sign_filter,
+            )
+            for chunk in chunks:
+                await message.answer(chunk, parse_mode="HTML")
+            return
+
+        if m_only_code:
+            code_filter = m_only_code.group(1)
+            chunks = await self._build_report(code_filter=code_filter)
+            for chunk in chunks:
+                await message.answer(chunk, parse_mode="HTML")
+            return
+
+        chunks = await self._build_report()
+        for chunk in chunks:
             await message.answer(chunk, parse_mode="HTML")
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_balances, Command("бк"))
-        # Разрешаем /бк, /бк CODE, /бк CODE SIGN
         self.router.message.register(
             self._cmd_balances,
             F.text.regexp(

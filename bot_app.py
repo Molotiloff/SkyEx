@@ -30,6 +30,7 @@ from handlers.accept_short import AcceptShortHandler
 from utils.offices import OFFICE_CARDS
 from utils.requests import get_issue_router
 from handlers.request_table_done import get_table_done_router
+from services.daily_balances_scheduler import setup_daily_balances_scheduler
 
 
 class BotApp:
@@ -42,33 +43,28 @@ class BotApp:
 
         request_chat_id = self.config.request_chat_id
 
-        # НОВОЕ: чаты заявок по городам
-        city_cash_chats = self.config.cash_chat_map           # dict[str,int]  (екб->chat_id, члб->chat_id, ...)
-        default_city = self.config.default_city                  # "екб"
-        city_cash_chat_ids = self.config.city_cash_chat_ids      # set[int] кассы города
+        city_cash_chats = self.config.cash_chat_map
+        default_city = self.config.default_city
+        city_cash_chat_ids = self.config.city_cash_chat_ids
 
-        # Чаты, где игнорируем валютные команды "/USD 100" (чтобы не ломать логику заявок и т.п.)
-        # сюда кладём:
-        # - общий request_chat_id (если есть)
-        # - все чаты заявок городов (city_cash_chats.values())
         ignore_chat_ids = set()
         if request_chat_id:
             ignore_chat_ids.add(int(request_chat_id))
         ignore_chat_ids.update(int(x) for x in city_cash_chats.values())
         city_schedule_chats = config.city_schedule_chats
 
-        self.ignore_chat_ids = ignore_chat_ids  # чтобы логирование было корректным
+        self.ignore_chat_ids = ignore_chat_ids
 
         self.dp = Dispatcher()
+        self.dp.startup.register(self._on_startup)
+        self.dp.shutdown.register(self._on_shutdown)
 
-        # анти-дедуп
         self.dp.message.middleware(DedupMiddleware())
         self.dp.callback_query.middleware(DedupMiddleware())
 
-        # репозиторий Postgres
         self.repo = Repo()
+        self.daily_balances_scheduler = None
 
-        # менеджеры
         self.managers_handler = ManagersHandler(
             self.repo,
             self.config.admin_chat_id,
@@ -78,24 +74,20 @@ class BotApp:
         self.cross_handler = CrossRateHandler()
         self.dp.include_router(self.cross_handler.router)
 
-        # USDT-кошелёк
         self.usdt_wallet_handler = UsdtWalletHandler(
             self.repo,
             admin_chat_ids={self.config.admin_chat_id} if getattr(self.config, "admin_chat_id", None) else set(),
         )
         self.dp.include_router(self.usdt_wallet_handler.router)
 
-        # базовые
         self.start_handler = StartHandler(self.repo)
         self.calc_handler = CalcHandler()
         office_handler = OfficeCardsHandler(OFFICE_CARDS)
         self.dp.include_router(office_handler.router)
         self.dp.include_router(debug_router)
 
-        # остальные — с repo
         self.nonzero_handler = NonZeroHandler(self.repo)
 
-        # WalletsHandler (поддержка касс города + перенос в чат клиента)
         self.wallets_handler = WalletsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
@@ -112,15 +104,14 @@ class BotApp:
             ignore_chat_ids=ignore_chat_ids,
         )
 
-        # CashRequestsHandler (заявки /депр /выдр с городами)
         self.cash_requests = CashRequestsHandler(
             self.repo,
             admin_chat_ids=admin_chat_list,
             admin_user_ids=admin_user_list,
             city_cash_chats=config.cash_chat_map,
             city_schedule_chats=city_schedule_chats,
-            default_city=config.default_city,
-            request_chat_id=config.request_chat_id,
+            default_city=default_city,
+            request_chat_id=request_chat_id,
         )
         self.dp.include_router(self.cash_requests.router)
 
@@ -132,8 +123,18 @@ class BotApp:
         )
         self.dp.include_router(self.admin_request_handler.router)
 
-        self.clients_balances = ClientsBalancesHandler(self.repo, admin_chat_ids=admin_chat_list)
+        self.clients_balances = ClientsBalancesHandler(
+            self.repo,
+            admin_chat_ids=admin_chat_list,
+        )
         self.dp.include_router(self.clients_balances.router)
+
+        self.daily_balances_scheduler = setup_daily_balances_scheduler(
+            repo=self.repo,
+            bot=self.bot,
+            admin_chat_ids=set(admin_chat_list or []),
+            timezone="Asia/Yekaterinburg",
+        )
 
         self.clients_handler = ClientsHandler(self.repo, admin_chat_ids=admin_chat_list)
         self.dp.include_router(self.clients_handler.router)
@@ -141,24 +142,31 @@ class BotApp:
         self.city_handler = CityAssignHandler(self.repo, admin_chat_ids=admin_chat_list)
         self.dp.include_router(self.city_handler.router)
 
-        # роутеры
         self.dp.include_router(self.start_handler.router)
         self.dp.include_router(self.calc_handler.router)
         self.dp.include_router(self.accept_short.router)
         self.dp.include_router(self.nonzero_handler.router)
         self.dp.include_router(self.wallets_handler.router)
 
-        # Роутер чата заявок (если задан): и занесение в таблицу, и удаление по подтверждению
         if request_chat_id:
             self.dp.include_router(get_table_done_router(request_chat_ids=[request_chat_id]))
             self.dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
 
-        # Роутер «Выдано/Issue» (если ещё используется где-то отдельно)
         self.dp.include_router(get_issue_router(
             repo=self.repo,
             admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],
             admin_user_ids=self.config.admin_ids,
         ))
+
+    async def _on_startup(self) -> None:
+        if self.daily_balances_scheduler and not self.daily_balances_scheduler.running:
+            self.daily_balances_scheduler.start()
+            logging.info("Daily balances scheduler started")
+
+    async def _on_shutdown(self) -> None:
+        if self.daily_balances_scheduler and self.daily_balances_scheduler.running:
+            self.daily_balances_scheduler.shutdown(wait=False)
+            logging.info("Daily balances scheduler stopped")
 
     async def run(self) -> None:
         logging.info("Connecting to Postgres…")
