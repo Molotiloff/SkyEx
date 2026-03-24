@@ -11,14 +11,14 @@ def setup_daily_balances_scheduler(
     *,
     repo: Repo,
     bot,
-    admin_chat_ids: set[int],
+    schedule_chat_ids: set[int],
     timezone: str = "Asia/Yekaterinburg",
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=timezone)
 
     handler = ClientsBalancesHandler(
         repo=repo,
-        admin_chat_ids=admin_chat_ids,
+        admin_chat_ids=schedule_chat_ids,
     )
 
     scheduler.add_job(

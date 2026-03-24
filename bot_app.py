@@ -132,7 +132,7 @@ class BotApp:
         self.daily_balances_scheduler = setup_daily_balances_scheduler(
             repo=self.repo,
             bot=self.bot,
-            admin_chat_ids=set(admin_chat_list or []),
+            schedule_chat_ids=self.config.schedule_chat_ids,
             timezone="Asia/Yekaterinburg",
         )
 

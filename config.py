@@ -17,6 +17,7 @@ def _parse_ids_set(s: str | None) -> set[int]:
     """
     Формат env:
       CITY_CASH_CHAT_IDS="-4301,-52251,-50"
+      SCHEDULE_CHAT_IDS="-1001,-1002"
     """
     if not s:
         return set()
@@ -68,6 +69,9 @@ class Config:
     # город -> чат расписания
     city_schedule_chats: dict[str, int]
 
+    # чаты для автoотчётов scheduler
+    schedule_chat_ids: set[int]
+
     default_city: str  # например "екб"
 
     # кассы города (операционные чаты кассиров)
@@ -94,21 +98,20 @@ class Config:
 
         request_chat_id = _parse_int(os.getenv("REQUEST_CHAT_ID"))
 
-        # чаты заявок по городам
         cash_chat_map = _parse_city_chat_map(
             os.getenv("CASH_CHAT_ID"),
             env_name="CASH_CHAT_ID",
         )
 
-        # чаты расписания по городам
         city_schedule_chats = _parse_city_chat_map(
             os.getenv("CITY_SCHEDULE_CHATS"),
             env_name="CITY_SCHEDULE_CHATS",
         )
 
+        schedule_chat_ids = _parse_ids_set(os.getenv("SCHEDULE_CHAT_IDS"))
+
         default_city = (os.getenv("DEFAULT_CITY", "екб") or "екб").strip().lower()
 
-        # кассы города
         city_cash_chat_ids = _parse_ids_set(os.getenv("CITY_CASH_CHAT_IDS"))
 
         return cls(
@@ -119,6 +122,7 @@ class Config:
             request_chat_id=request_chat_id,
             cash_chat_map=cash_chat_map,
             city_schedule_chats=city_schedule_chats,
+            schedule_chat_ids=schedule_chat_ids,
             default_city=default_city,
             city_cash_chat_ids=city_cash_chat_ids,
         )

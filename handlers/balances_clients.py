@@ -19,6 +19,8 @@ PLUS_CHARS = "+＋"
 NEAR_ZERO_THRESHOLD = Decimal("1")
 SCHEDULED_RUB_DEBT_THRESHOLD = Decimal("-1000")
 SCHEDULED_USDT_DEBT_THRESHOLD = Decimal("-1")
+SCHEDULED_RUB_POSITIVE_THRESHOLD = Decimal("1000")
+SCHEDULED_USDT_POSITIVE_THRESHOLD = Decimal("1")
 EXCLUDED_SCHEDULED_GROUP = "Балансы"
 
 ALIASES = {
@@ -76,6 +78,7 @@ class ClientsBalancesHandler:
         code_filter: str | None = None,
         sign_filter: str | None = None,
         min_negative_balance: Decimal | None = None,
+        min_positive_balance: Decimal | None = None,
         excluded_client_group: str | None = None,
     ) -> list[str]:
         rows = await self.repo.balances_by_client()
@@ -96,8 +99,11 @@ class ClientsBalancesHandler:
 
                 bal = Decimal(str(r["balance"]))
 
-                if sign_filter == "+" and bal <= 0:
-                    continue
+                if sign_filter == "+":
+                    if bal <= 0:
+                        continue
+                    if min_positive_balance is not None and bal <= min_positive_balance:
+                        continue
 
                 if sign_filter == "-":
                     if bal >= 0:
@@ -112,6 +118,11 @@ class ClientsBalancesHandler:
                     return [
                         f"Нет клиентов по {html.escape(code_filter)} "
                         f"с балансом меньше {html.escape(str(min_negative_balance))}."
+                    ]
+                if sign_filter == "+" and min_positive_balance is not None:
+                    return [
+                        f"Нет клиентов по {html.escape(code_filter)} "
+                        f"с балансом больше {html.escape(str(min_positive_balance))}."
                     ]
 
                 cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
@@ -136,6 +147,11 @@ class ClientsBalancesHandler:
                 header = (
                     f"Клиенты по {html.escape(code_filter)} "
                     f"(баланс меньше {html.escape(str(min_negative_balance))}):"
+                )
+            elif sign_filter == "+" and min_positive_balance is not None:
+                header = (
+                    f"Клиенты по {html.escape(code_filter)} "
+                    f"(баланс больше {html.escape(str(min_positive_balance))}):"
                 )
             else:
                 cmp_html = "&gt; 0" if sign_filter == "+" else "&lt; 0"
@@ -221,28 +237,50 @@ class ClientsBalancesHandler:
         *,
         currencies: Iterable[str] = ("RUB", "USDT"),
     ) -> None:
-        currencies_norm = [_normalize_code(code) for code in currencies]
+        _ = currencies  # оставляем параметр для совместимости
+
+        scheduled_sections = [
+            {
+                "code": "RUB",
+                "sign": "-",
+                "min_negative_balance": SCHEDULED_RUB_DEBT_THRESHOLD,
+                "min_positive_balance": None,
+            },
+            {
+                "code": "USDT",
+                "sign": "-",
+                "min_negative_balance": SCHEDULED_USDT_DEBT_THRESHOLD,
+                "min_positive_balance": None,
+            },
+            {
+                "code": "RUB",
+                "sign": "+",
+                "min_negative_balance": None,
+                "min_positive_balance": SCHEDULED_RUB_POSITIVE_THRESHOLD,
+            },
+            {
+                "code": "USDT",
+                "sign": "+",
+                "min_negative_balance": None,
+                "min_positive_balance": SCHEDULED_USDT_POSITIVE_THRESHOLD,
+            },
+        ]
 
         for chat_id in self.admin_chat_ids:
             await bot.send_message(
                 chat_id=chat_id,
-                text="📊 <b>Ежедневный отчёт по минусовым балансам</b>",
+                text="📊 <b>Ежедневный отчёт по балансам</b>",
                 parse_mode="HTML",
             )
 
             has_any = False
 
-            for code in currencies_norm:
-                min_negative_balance = None
-                if code == "RUB":
-                    min_negative_balance = SCHEDULED_RUB_DEBT_THRESHOLD
-                elif code == "USDT":
-                    min_negative_balance = SCHEDULED_USDT_DEBT_THRESHOLD
-
+            for section in scheduled_sections:
                 chunks = await self._build_report(
-                    code_filter=code,
-                    sign_filter="-",
-                    min_negative_balance=min_negative_balance,
+                    code_filter=section["code"],
+                    sign_filter=section["sign"],
+                    min_negative_balance=section["min_negative_balance"],
+                    min_positive_balance=section["min_positive_balance"],
                     excluded_client_group=EXCLUDED_SCHEDULED_GROUP,
                 )
 
@@ -265,7 +303,7 @@ class ClientsBalancesHandler:
             if not has_any:
                 await bot.send_message(
                     chat_id=chat_id,
-                    text="Минусовых балансов по выбранным валютам нет.",
+                    text="Подходящих балансов по выбранным условиям нет.",
                     parse_mode="HTML",
                 )
 
