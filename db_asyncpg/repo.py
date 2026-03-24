@@ -352,6 +352,7 @@ class Repo:
                     a.client_id,
                     c.name AS client_name,
                     c.chat_id,
+                    c.client_group,
                     a.currency_code,
                     a.balance,
                     a.precision
