@@ -63,7 +63,7 @@ class Repo:
         async with pool.acquire() as con:
             row = await con.fetchrow(
                 """
-                SELECT id, chat_id, name, city
+                SELECT id, chat_id, name, client_group
                 FROM clients
                 WHERE is_active = TRUE
                   AND name = $1
@@ -74,17 +74,20 @@ class Repo:
             )
             return dict(row) if row else None
 
-    async def ensure_client(self, chat_id: int, name: str, city: str | None = None) -> int:
+    async def ensure_client(self, chat_id: int, name: str, client_group: str | None = None) -> int:
         pool = await get_pool()
         async with pool.acquire() as con:
             async with con.transaction():
-                # 1) обычный путь: нашли по chat_id
                 row = await con.fetchrow(
-                    "SELECT id, name, city, is_active FROM clients WHERE chat_id=$1",
+                    "SELECT id, name, client_group, is_active FROM clients WHERE chat_id=$1",
                     int(chat_id),
                 )
                 if row:
-                    need_update_nc = (name and row["name"] != name) or (city is not None and row["city"] != city)
+                    need_update_ng = (
+                            (name and row["name"] != name)
+                            or (client_group is not None and row["client_group"] != client_group)
+                    )
+
                     if not row["is_active"]:
                         await con.execute(
                             """
@@ -92,23 +95,26 @@ class Repo:
                             SET is_active = TRUE,
                                 deactivated_at = NULL,
                                 name = COALESCE($2, name),
-                                city = COALESCE($3, city)
+                                client_group = COALESCE($3, client_group)
                             WHERE id = $1
                             """,
-                            int(row["id"]), name, city,
+                            int(row["id"]), name, client_group,
                         )
-                    elif need_update_nc:
+                    elif need_update_ng:
                         await con.execute(
-                            "UPDATE clients SET name=COALESCE($2,name), city=COALESCE($3,city) WHERE id=$1",
-                            int(row["id"]), name, city,
+                            """
+                            UPDATE clients
+                            SET name = COALESCE($2, name),
+                                client_group = COALESCE($3, client_group)
+                            WHERE id = $1
+                            """,
+                            int(row["id"]), name, client_group,
                         )
                     return int(row["id"])
 
-                # 2) НОВОЕ: чат мог мигрировать, но имя клиента осталось тем же
-                #    (это лечит group->supergroup: старый chat_id перестал быть валиден)
                 by_name = await con.fetchrow(
                     """
-                    SELECT id, chat_id, name, city, is_active
+                    SELECT id, chat_id, name, client_group, is_active
                     FROM clients
                     WHERE is_active = TRUE
                       AND name = $1
@@ -118,21 +124,24 @@ class Repo:
                     (name or "").strip(),
                 )
                 if by_name:
-                    # перепривязываем на новый chat_id
                     await con.execute(
-                        "UPDATE clients SET chat_id=$1, city=COALESCE($2, city) WHERE id=$3",
-                        int(chat_id), city, int(by_name["id"]),
+                        """
+                        UPDATE clients
+                        SET chat_id = $1,
+                            client_group = COALESCE($2, client_group)
+                        WHERE id = $3
+                        """,
+                        int(chat_id), client_group, int(by_name["id"]),
                     )
                     return int(by_name["id"])
 
-                # 3) иначе — создаём нового клиента
                 rec = await con.fetchrow(
                     """
-                    INSERT INTO clients(chat_id, name, city)
+                    INSERT INTO clients(chat_id, name, client_group)
                     VALUES($1, $2, $3)
                     RETURNING id
                     """,
-                    int(chat_id), name, city,
+                    int(chat_id), name, client_group,
                 )
                 return int(rec["id"])
 
@@ -161,7 +170,7 @@ class Repo:
                     c.id,
                     c.chat_id,
                     c.name,
-                    c.city,
+                    c.client_group,
                     c.created_at,
                     COUNT(a.*)               AS accounts_total,
                     COUNT(a.*) FILTER (WHERE a.is_active) AS accounts_active
@@ -354,17 +363,17 @@ class Repo:
             )
             return [dict(r) for r in rows]
 
-    async def set_client_city_by_chat_id(self, chat_id: int, city: str) -> dict | None:
+    async def set_client_group_by_chat_id(self, chat_id: int, client_group: str) -> dict | None:
         pool = await get_pool()
         async with pool.acquire() as con:
             row = await con.fetchrow(
                 """
                 UPDATE clients
-                SET city = $2
+                SET client_group = $2
                 WHERE chat_id = $1
-                RETURNING id, chat_id, name, city, created_at
+                RETURNING id, chat_id, name, client_group, created_at
                 """,
-                chat_id, city.strip(),
+                chat_id, client_group.strip(),
             )
             return dict(row) if row else None
 

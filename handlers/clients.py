@@ -1,4 +1,3 @@
-# handlers/clients.py
 import html
 from typing import Iterable
 
@@ -7,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
 from db_asyncpg.repo import Repo
-from keyboards.confirm import confirm_kb  # ✅ клавиатура Да/Нет
+from keyboards.confirm import confirm_kb
 
 
 def _chunk(text: str, limit: int = 3500) -> list[str]:
@@ -29,30 +28,29 @@ class ClientsHandler:
     /rmclient <chat_id> — мягко удалить клиента (is_active=false) с подтверждением.
                           Доступ: только из admin_chat_ids.
     """
+
     def __init__(self, repo: Repo, admin_chat_ids: Iterable[int] | None = None) -> None:
         self.repo = repo
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.router = Router()
         self._register()
 
-    # --- Команда: список клиентов ---
     async def _cmd_clients(self, message: Message) -> None:
-        # доступ только из админского чата
         if self.admin_chat_ids and message.chat.id not in self.admin_chat_ids:
             await message.answer("Команда доступна только в админском чате.")
             return
 
-        clients = await self.repo.list_clients()  # показывает только активных
+        clients = await self.repo.list_clients()
 
         lines: list[str] = [f"<b>Клиенты: {len(clients)}</b>"]
         for c in sorted(clients, key=lambda x: (x.get("name") or "").lower()):
             name = html.escape(c.get("name") or "")
-            city = html.escape(c.get("city") or "")
+            client_group = html.escape(c.get("client_group") or "")
             chat_id = c["chat_id"]
 
             line = f"{name}"
-            if city:
-                line += f" — {city}"
+            if client_group:
+                line += f" — {client_group}"
             line += f"\n    chat_id = <code>{chat_id}</code>"
             lines.append(line)
 
@@ -60,9 +58,7 @@ class ClientsHandler:
         for chunk in _chunk(text):
             await message.answer(chunk, parse_mode="HTML")
 
-    # --- Команда: мягкое удаление клиента (с подтверждением) ---
     async def _cmd_rmclient(self, message: Message) -> None:
-        # доступ только из админского чата
         if self.admin_chat_ids and message.chat.id not in self.admin_chat_ids:
             await message.answer("Команда доступна только в админском чате.")
             return
@@ -78,7 +74,6 @@ class ClientsHandler:
             await message.answer("Ошибка: chat_id должен быть числом.")
             return
 
-        # спрашиваем подтверждение
         text = (
             "Подтвердите удаление клиента (мягкое — is_active=false).\n"
             f"chat_id = <code>{chat_id_to_remove}</code>"
@@ -92,9 +87,7 @@ class ClientsHandler:
             ),
         )
 
-    # --- Callback: обработка подтверждения удаления клиента ---
     async def _cb_rmclient(self, cq: CallbackQuery) -> None:
-        # доступ только из админского чата
         if self.admin_chat_ids and (not cq.message or cq.message.chat.id not in self.admin_chat_ids):
             await cq.answer("Доступно только в админском чате.", show_alert=True)
             return
@@ -109,7 +102,6 @@ class ClientsHandler:
             return
 
         if answer == "no":
-            # просто убираем клавиатуру и помечаем отмену
             try:
                 old = cq.message.text or ""
                 await cq.message.edit_text(old + "\nОтменено.", parse_mode="HTML")
@@ -122,7 +114,6 @@ class ClientsHandler:
             await cq.answer("Отмена")
             return
 
-        # answer == "yes" — мягко удаляем
         try:
             ok = await self.repo.remove_client(chat_id_to_remove)
             if ok:
