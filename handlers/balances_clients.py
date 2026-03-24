@@ -18,6 +18,8 @@ PLUS_CHARS = "+＋"
 
 NEAR_ZERO_THRESHOLD = Decimal("1")
 SCHEDULED_RUB_DEBT_THRESHOLD = Decimal("-1000")
+SCHEDULED_USDT_DEBT_THRESHOLD = Decimal("-1")
+EXCLUDED_SCHEDULED_GROUP = "Балансы"
 
 ALIASES = {
     "RUB": "RUB", "РУБ": "RUB", "РУБЛЬ": "RUB", "РУБЛИ": "RUB", "РУБЛЕЙ": "RUB", "РУБ.": "RUB",
@@ -74,16 +76,22 @@ class ClientsBalancesHandler:
         code_filter: str | None = None,
         sign_filter: str | None = None,
         min_negative_balance: Decimal | None = None,
+        excluded_client_group: str | None = None,
     ) -> list[str]:
         rows = await self.repo.balances_by_client()
 
         if code_filter and sign_filter:
             code_filter = _normalize_code(code_filter)
             sign_filter = _normalize_sign(sign_filter)
+            excluded_group_norm = (excluded_client_group or "").strip().casefold()
 
             filtered = []
             for r in rows:
                 if str(r["currency_code"]).upper() != code_filter:
+                    continue
+
+                client_group = str(r.get("client_group") or "").strip()
+                if excluded_group_norm and client_group.casefold() == excluded_group_norm:
                     continue
 
                 bal = Decimal(str(r["balance"]))
@@ -228,11 +236,14 @@ class ClientsBalancesHandler:
                 min_negative_balance = None
                 if code == "RUB":
                     min_negative_balance = SCHEDULED_RUB_DEBT_THRESHOLD
+                elif code == "USDT":
+                    min_negative_balance = SCHEDULED_USDT_DEBT_THRESHOLD
 
                 chunks = await self._build_report(
                     code_filter=code,
                     sign_filter="-",
                     min_negative_balance=min_negative_balance,
+                    excluded_client_group=EXCLUDED_SCHEDULED_GROUP,
                 )
 
                 if not chunks:
