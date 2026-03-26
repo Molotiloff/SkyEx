@@ -4,33 +4,32 @@ import logging
 from aiogram import Bot, Dispatcher
 
 from config import Config
+from db_asyncpg.pool import create_pool, close_pool
+from db_asyncpg.repo import Repo
+from handlers.accept_short import AcceptShortHandler
 from handlers.admin_request import AdminRequestHandler
 from handlers.balances_clients import ClientsBalancesHandler
-from handlers.broadcast_all import BroadcastAllHandler
+from handlers.calc import CalcHandler
 from handlers.cash_requests import CashRequestsHandler
 from handlers.city import CityAssignHandler
 from handlers.clients import ClientsHandler
 from handlers.cross import CrossRateHandler
 from handlers.debug import debug_router
 from handlers.managers import ManagersHandler
-from handlers.request_table_delete import get_table_delete_router
-from handlers.usdt_wallet import UsdtWalletHandler
-from middlewares.dedup import DedupMiddleware
-
-from handlers.office_cards import OfficeCardsHandler
-
-from db_asyncpg.pool import create_pool, close_pool
-from db_asyncpg.repo import Repo
-
-from handlers.start import StartHandler
-from handlers.calc import CalcHandler
-from handlers.wallets import WalletsHandler
 from handlers.nonzero import NonZeroHandler
-from handlers.accept_short import AcceptShortHandler
+from handlers.office_cards import OfficeCardsHandler
+from handlers.rate_order import RateOrderHandler
+from handlers.request_table_delete import get_table_delete_router
+from handlers.request_table_done import get_table_done_router
+from handlers.start import StartHandler
+from handlers.usdt_wallet import UsdtWalletHandler
+from handlers.wallets import WalletsHandler
+from middlewares.dedup import DedupMiddleware
+from services.daily_balances_scheduler import setup_daily_balances_scheduler
+from services.rate_order.grinex_ws_service import GrinexWsService
+from services.rate_order.rate_order_service import RateOrderService
 from utils.offices import OFFICE_CARDS
 from utils.requests import get_issue_router
-from handlers.request_table_done import get_table_done_router
-from services.daily_balances_scheduler import setup_daily_balances_scheduler
 
 
 class BotApp:
@@ -42,16 +41,15 @@ class BotApp:
         admin_user_list = self.config.admin_ids if self.config.admin_ids else None
 
         request_chat_id = self.config.request_chat_id
-
         city_cash_chats = self.config.cash_chat_map
         default_city = self.config.default_city
         city_cash_chat_ids = self.config.city_cash_chat_ids
+        city_schedule_chats = self.config.city_schedule_chats
 
         ignore_chat_ids = set()
         if request_chat_id:
             ignore_chat_ids.add(int(request_chat_id))
         ignore_chat_ids.update(int(x) for x in city_cash_chats.values())
-        city_schedule_chats = config.city_schedule_chats
 
         self.ignore_chat_ids = ignore_chat_ids
 
@@ -64,6 +62,9 @@ class BotApp:
 
         self.repo = Repo()
         self.daily_balances_scheduler = None
+        self.rate_order_service = None
+        self.rate_order_handler = None
+        self.grinex_ws_service = None
 
         self.managers_handler = ManagersHandler(
             self.repo,
@@ -82,6 +83,7 @@ class BotApp:
 
         self.start_handler = StartHandler(self.repo)
         self.calc_handler = CalcHandler()
+
         office_handler = OfficeCardsHandler(OFFICE_CARDS)
         self.dp.include_router(office_handler.router)
         self.dp.include_router(debug_router)
@@ -136,11 +138,42 @@ class BotApp:
             timezone="Asia/Yekaterinburg",
         )
 
-        self.clients_handler = ClientsHandler(self.repo, admin_chat_ids=admin_chat_list)
+        self.clients_handler = ClientsHandler(
+            self.repo,
+            admin_chat_ids=admin_chat_list,
+        )
         self.dp.include_router(self.clients_handler.router)
 
-        self.city_handler = CityAssignHandler(self.repo, admin_chat_ids=admin_chat_list)
+        self.city_handler = CityAssignHandler(
+            self.repo,
+            admin_chat_ids=admin_chat_list,
+        )
         self.dp.include_router(self.city_handler.router)
+
+        if self.config.rate_orders_chat_id:
+            self.grinex_ws_service = GrinexWsService()
+
+            self.rate_order_service = RateOrderService(
+                repo=self.repo,
+                orders_chat_id=self.config.rate_orders_chat_id,
+                get_current_best_ask=lambda: self.grinex_ws_service.best_ask,
+            )
+
+            self.rate_order_handler = RateOrderHandler(
+                self.repo,
+                rate_order_service=self.rate_order_service,
+                admin_chat_ids=admin_chat_list,
+                admin_user_ids=admin_user_list,
+                orders_chat_id=self.config.rate_orders_chat_id,
+            )
+            self.dp.include_router(self.rate_order_handler.router)
+
+            self.grinex_ws_service.on_best_ask = (
+                lambda ask: self.rate_order_service.process_best_ask(
+                    bot=self.bot,
+                    best_ask=ask,
+                )
+            )
 
         self.dp.include_router(self.start_handler.router)
         self.dp.include_router(self.calc_handler.router)
@@ -152,31 +185,42 @@ class BotApp:
             self.dp.include_router(get_table_done_router(request_chat_ids=[request_chat_id]))
             self.dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
 
-        self.dp.include_router(get_issue_router(
-            repo=self.repo,
-            admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],
-            admin_user_ids=self.config.admin_ids,
-        ))
+        self.dp.include_router(
+            get_issue_router(
+                repo=self.repo,
+                admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],
+                admin_user_ids=self.config.admin_ids,
+            )
+        )
 
     async def _on_startup(self) -> None:
         if self.daily_balances_scheduler and not self.daily_balances_scheduler.running:
             self.daily_balances_scheduler.start()
             logging.info("Daily balances scheduler started")
 
+        if self.grinex_ws_service:
+            await self.grinex_ws_service.start()
+            logging.info("Grinex websocket service started")
+
     async def _on_shutdown(self) -> None:
         if self.daily_balances_scheduler and self.daily_balances_scheduler.running:
             self.daily_balances_scheduler.shutdown(wait=False)
             logging.info("Daily balances scheduler stopped")
 
+        if self.grinex_ws_service:
+            await self.grinex_ws_service.stop()
+            logging.info("Grinex websocket service stopped")
+
     async def run(self) -> None:
         logging.info("Connecting to Postgres…")
         await create_pool(self.config.database_url)
         logging.info(
-            "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, city_cash_chat_ids=%s)",
+            "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, city_cash_chat_ids=%s, rate_orders_chat_id=%s)",
             self.config.request_chat_id,
             self.config.cash_chat_map,
             self.ignore_chat_ids,
             self.config.city_cash_chat_ids,
+            self.config.rate_orders_chat_id,
         )
         try:
             await self.dp.start_polling(self.bot)

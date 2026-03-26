@@ -753,3 +753,207 @@ class Repo:
                     int(request_message_id),
                 )
                 return dict(row) if row else None
+
+    async def _ensure_rate_orders_table(self, con) -> None:
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rate_orders (
+                id BIGSERIAL PRIMARY KEY,
+                client_chat_id BIGINT NOT NULL,
+                client_name TEXT NOT NULL,
+                requested_rate NUMERIC(18,8) NOT NULL,
+                commission NUMERIC(18,8),
+                target_ask NUMERIC(18,8),
+                status TEXT NOT NULL DEFAULT 'draft',
+                order_chat_id BIGINT,
+                order_message_id BIGINT,
+                created_by_user_id BIGINT,
+                activated_by_user_id BIGINT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                activated_at TIMESTAMPTZ,
+                triggered_at TIMESTAMPTZ,
+                notified_at TIMESTAMPTZ
+            )
+            """
+        )
+        await con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rate_orders_status
+            ON rate_orders(status)
+            """
+        )
+        await con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_rate_orders_target_ask
+            ON rate_orders(target_ask)
+            """
+        )
+
+    async def create_rate_order(
+        self,
+        *,
+        client_chat_id: int,
+        client_name: str,
+        requested_rate: Decimal,
+        created_by_user_id: int | None,
+        order_chat_id: int,
+        order_message_id: int,
+    ) -> int:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                row = await con.fetchrow(
+                    """
+                    INSERT INTO rate_orders(
+                        client_chat_id,
+                        client_name,
+                        requested_rate,
+                        status,
+                        order_chat_id,
+                        order_message_id,
+                        created_by_user_id,
+                        updated_at
+                    )
+                    VALUES($1, $2, $3, 'draft', $4, $5, $6, now())
+                    RETURNING id
+                    """,
+                    int(client_chat_id),
+                    client_name,
+                    requested_rate,
+                    int(order_chat_id),
+                    int(order_message_id),
+                    created_by_user_id,
+                )
+                return int(row["id"])
+
+    async def set_rate_order_message_binding(
+        self,
+        *,
+        order_id: int,
+        order_chat_id: int,
+        order_message_id: int,
+    ) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                await con.execute(
+                    """
+                    UPDATE rate_orders
+                    SET order_chat_id = $2,
+                        order_message_id = $3,
+                        updated_at = now()
+                    WHERE id = $1
+                    """,
+                    int(order_id),
+                    int(order_chat_id),
+                    int(order_message_id),
+                )
+
+    async def get_rate_order_by_message(
+        self,
+        *,
+        order_chat_id: int,
+        order_message_id: int,
+    ) -> dict[str, Any] | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                row = await con.fetchrow(
+                    """
+                    SELECT *
+                    FROM rate_orders
+                    WHERE order_chat_id = $1
+                      AND order_message_id = $2
+                    LIMIT 1
+                    """,
+                    int(order_chat_id),
+                    int(order_message_id),
+                )
+                return dict(row) if row else None
+
+    async def get_rate_order_by_id(self, order_id: int) -> dict[str, Any] | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                row = await con.fetchrow(
+                    """
+                    SELECT *
+                    FROM rate_orders
+                    WHERE id = $1
+                    LIMIT 1
+                    """,
+                    int(order_id),
+                )
+                return dict(row) if row else None
+
+    async def activate_rate_order(
+        self,
+        *,
+        order_id: int,
+        commission: Decimal,
+        target_ask: Decimal,
+        activated_by_user_id: int | None,
+    ) -> None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                await con.execute(
+                    """
+                    UPDATE rate_orders
+                    SET commission = $2,
+                        target_ask = $3,
+                        status = 'active',
+                        activated_by_user_id = $4,
+                        activated_at = now(),
+                        updated_at = now()
+                    WHERE id = $1
+                    """,
+                    int(order_id),
+                    commission,
+                    target_ask,
+                    activated_by_user_id,
+                )
+
+    async def list_active_rate_orders(self) -> list[dict[str, Any]]:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                rows = await con.fetch(
+                    """
+                    SELECT *
+                    FROM rate_orders
+                    WHERE status = 'active'
+                    ORDER BY target_ask ASC, id ASC
+                    """
+                )
+                return [dict(r) for r in rows]
+
+    async def mark_rate_order_triggered(
+        self,
+        *,
+        order_id: int,
+    ) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_rate_orders_table(con)
+                res = await con.execute(
+                    """
+                    UPDATE rate_orders
+                    SET status = 'triggered',
+                        triggered_at = now(),
+                        notified_at = now(),
+                        updated_at = now()
+                    WHERE id = $1
+                      AND status = 'active'
+                    """,
+                    int(order_id),
+                )
+                return res.endswith(" 1")

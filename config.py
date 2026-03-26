@@ -69,8 +69,11 @@ class Config:
     # город -> чат расписания
     city_schedule_chats: dict[str, int]
 
-    # чаты для автoотчётов scheduler
+    # чаты для автоотчётов scheduler
     schedule_chat_ids: set[int]
+
+    # чат для ордеров по курсу
+    rate_orders_chat_id: int | None
 
     default_city: str  # например "екб"
 
@@ -109,6 +112,7 @@ class Config:
         )
 
         schedule_chat_ids = _parse_ids_set(os.getenv("SCHEDULE_CHAT_IDS"))
+        rate_orders_chat_id = _parse_int(os.getenv("RATE_ORDERS_CHAT_ID"))
 
         default_city = (os.getenv("DEFAULT_CITY", "екб") or "екб").strip().lower()
 
@@ -123,6 +127,7 @@ class Config:
             cash_chat_map=cash_chat_map,
             city_schedule_chats=city_schedule_chats,
             schedule_chat_ids=schedule_chat_ids,
+            rate_orders_chat_id=rate_orders_chat_id,
             default_city=default_city,
             city_cash_chat_ids=city_cash_chat_ids,
         )
