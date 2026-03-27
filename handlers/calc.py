@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from uuid import uuid4
 
 from aiogram import F, Router
@@ -100,12 +100,17 @@ async def _on_inline(q: InlineQuery) -> None:
         )
         return
 
-    pretty = _fmt_decimal_smart(value)
+    # округление до 3 знаков
+    value_rounded = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
+
+    pretty = f"{value_rounded.normalize():f}"
+    if "." in pretty:
+        pretty = pretty.rstrip("0").rstrip(".")
 
     res_full = InlineQueryResultArticle(
         id=str(uuid4()),
-        title=f"= {pretty}",
-        description=f"{query} = {pretty}",
+        title=f"{pretty}",              # 👉 без "=" как в Telegram
+        description=f"{query}",         # 👉 только выражение
         input_message_content=InputTextMessageContent(
             message_text=f"<code>{query}</code> = <code>{pretty}</code>",
             parse_mode="HTML",
@@ -116,8 +121,6 @@ async def _on_inline(q: InlineQuery) -> None:
         results=[res_full],
         is_personal=True,
         cache_time=1,
-        switch_pm_text="Открыть чат с ботом",
-        switch_pm_parameter="inline",
     )
 
 
