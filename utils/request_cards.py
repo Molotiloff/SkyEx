@@ -69,7 +69,7 @@ def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineK
         lines.append(f"<b>Принимает</b>: {data.tg_to}")
     if data.tg_from:
         lines.append(f"<b>Выдает</b>: {data.tg_from}")
-    lines.append(f"<b>Код</b>: <tg-spoiler>{html.escape(data.pin_code)}</tg-spoiler>")
+    lines.append(f"<b>Код</b>: <code>{html.escape(data.pin_code)}</code>")
     if data.comment:
         lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
 
@@ -136,7 +136,7 @@ def build_client_card_fx(data: CardDataFx) -> tuple[str, Optional[InlineKeyboard
         f"<b>Выдаем</b>: <code>{html.escape(data.pretty_out)} {html.escape(data.out_code)}</code>",
         "",
         f"<b>Кассир</b>: {html.escape(cashier)}",
-        f"<b>Код</b>: <tg-spoiler>{html.escape(data.pin_code)}</tg-spoiler>",
+        f"<b>Код</b>: <code>{html.escape(data.pin_code)}</code>",
     ]
     if data.comment:
         lines += ["----", f"<b>Комментарий</b>: <code>{html.escape(data.comment)}</code>❗️"]
