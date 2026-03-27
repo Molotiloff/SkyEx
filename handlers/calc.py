@@ -107,7 +107,7 @@ async def _on_inline(q: InlineQuery) -> None:
         title=f"= {pretty}",
         description=f"{query} = {pretty}",
         input_message_content=InputTextMessageContent(
-            message_text=f"<code>{query}</code> = <b>{pretty}</b>",
+            message_text=f"<code>{query}</code> = <code>{pretty}</code>",
             parse_mode="HTML",
         ),
     )
