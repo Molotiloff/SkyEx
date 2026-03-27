@@ -39,6 +39,12 @@ class RateOrderService:
 
         return f"<b>Актуальный курс Grinex</b>: <code>{self._fmt_rate(current_ask)}</code>"
 
+    @staticmethod
+    def _condition_text(commission: Decimal, *, triggered: bool = False) -> str:
+        if commission < 0:
+            return "курс биржи стал ≤ целевого" if triggered else "ждём курс биржи ≤ целевого"
+        return "курс биржи стал ≥ целевого" if triggered else "ждём курс биржи ≥ целевого"
+
     def build_draft_text(
         self,
         *,
@@ -55,7 +61,7 @@ class RateOrderService:
             f"{self._current_ask_line()}\n"
             f"<b>Статус</b>: <code>ждёт комиссию</code>\n\n"
             "Ответьте на это сообщение командой вида:\n"
-            "<code>/курс -0.5</code>"
+            "<code>/курс -0.5</code> или <code>/курс +0.5</code>"
         )
 
     def build_active_text(
@@ -75,6 +81,7 @@ class RateOrderService:
             f"<b>Курс клиента</b>: <code>{self._fmt_rate(requested_rate)}</code>\n"
             f"<b>Комиссия</b>: <code>{self._fmt_rate(commission)}</code>\n"
             f"<b>Ожидаемый курс биржи по ордеру</b>: <code>{self._fmt_rate(target_ask)}</code>\n"
+            f"<b>Условие</b>: <code>{html.escape(self._condition_text(commission))}</code>\n"
             f"{self._current_ask_line()}\n"
             f"<b>Статус</b>: <code>отслеживается</code>"
         )
@@ -97,6 +104,7 @@ class RateOrderService:
             f"<b>Курс клиента</b>: <code>{self._fmt_rate(requested_rate)}</code>\n"
             f"<b>Комиссия</b>: <code>{self._fmt_rate(commission)}</code>\n"
             f"<b>Ожидаемый курс биржи по ордеру</b>: <code>{self._fmt_rate(target_ask)}</code>\n"
+            f"<b>Условие</b>: <code>{html.escape(self._condition_text(commission, triggered=True))}</code>\n"
             f"<b>Актуальный курс на бирже при выполнении ордера</b>: <code>{self._fmt_rate(best_ask)}</code>\n"
             f"<b>Статус</b>: <code>выполнено</code>"
         )
@@ -159,7 +167,7 @@ class RateOrderService:
         try:
             commission = Decimal(commission_text.replace(",", "."))
         except InvalidOperation:
-            raise ValueError("Комиссия должна быть числом. Пример: /курс -0.5")
+            raise ValueError("Комиссия должна быть числом. Пример: /курс -0.5 или /курс +0.5")
 
         requested_rate = Decimal(str(order["requested_rate"]))
         target_ask = requested_rate + commission
@@ -205,11 +213,18 @@ class RateOrderService:
         for order in orders:
             try:
                 target_ask = Decimal(str(order["target_ask"]))
+                commission = Decimal(str(order["commission"]))
             except Exception:
                 continue
 
-            if best_ask > target_ask:
-                continue
+            if commission < 0:
+                # Ждём снижения курса
+                if best_ask > target_ask:
+                    continue
+            else:
+                # Ждём роста курса
+                if best_ask < target_ask:
+                    continue
 
             changed = await self.repo.mark_rate_order_triggered(
                 order_id=int(order["id"]),
@@ -222,8 +237,6 @@ class RateOrderService:
             order_chat_id = int(order["order_chat_id"])
             order_message_id = int(order["order_message_id"])
             requested_rate = Decimal(str(order["requested_rate"]))
-            commission = Decimal(str(order["commission"]))
-            target_ask = Decimal(str(order["target_ask"]))
 
             client_text = (
                 "✅ Курс достиг нужного уровня.\n\n"
