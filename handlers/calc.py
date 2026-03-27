@@ -87,10 +87,10 @@ async def _on_inline(q: InlineQuery) -> None:
             results=[
                 InlineQueryResultArticle(
                     id=str(uuid4()),
-                    title="Ошибка в выражении",
+                    title="Ошибка",
                     description=str(e),
                     input_message_content=InputTextMessageContent(
-                        message_text=f"❌ Ошибка в выражении: <code>{e}</code>",
+                        message_text=f"❌ Ошибка: <code>{e}</code>",
                         parse_mode="HTML",
                     ),
                 )
@@ -109,10 +109,13 @@ async def _on_inline(q: InlineQuery) -> None:
 
     res_full = InlineQueryResultArticle(
         id=str(uuid4()),
-        title=f"{pretty}",              # 👉 без "=" как в Telegram
-        description=f"{query}",         # 👉 только выражение
+        title=f"{pretty}",
+        description=(
+            f"{query}\n"
+            "Нажмите здесь, чтобы поделиться расчетами в этом чате"
+        ),
         input_message_content=InputTextMessageContent(
-            message_text=f"<code>{query}</code> = <code>{pretty}</code>",
+            message_text=f"<b>{query}</b> = <code>{pretty}</code>",
             parse_mode="HTML",
         ),
     )
