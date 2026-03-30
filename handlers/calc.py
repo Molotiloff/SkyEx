@@ -31,12 +31,23 @@ def _fmt_decimal_smart(d: Decimal) -> str:
     return s
 
 
+def _normalize_expr(expr: str) -> str:
+    """
+    Нормализуем десятичные запятые:
+    100.1+100,1 -> 100.1+100.1
+    """
+    return (expr or "").replace(",", ".")
+
+
 async def _cmd_calc(message: Message) -> None:
     text = message.text or ""
-    expr = text[len("/calc"):].strip() if text.startswith("/calc") else ""
-    if not expr:
+    raw_expr = text[len("/calc"):].strip() if text.startswith("/calc") else ""
+    if not raw_expr:
         await message.answer("Использование: /calc <выражение>\nНапример: /calc (2+3)*100-50%")
         return
+
+    expr = _normalize_expr(raw_expr)
+
     try:
         result = evaluate(expr)
         sres = _fmt_decimal_smart(result)
@@ -47,9 +58,12 @@ async def _cmd_calc(message: Message) -> None:
 
 async def _slash_calc(message: Message) -> None:
     raw = (message.text or "").strip()
-    expr = raw[1:].strip()
-    if not expr:
+    raw_expr = raw[1:].strip()
+    if not raw_expr:
         return
+
+    expr = _normalize_expr(raw_expr)
+
     try:
         result = evaluate(expr)
         sres = _fmt_decimal_smart(result)
@@ -59,9 +73,9 @@ async def _slash_calc(message: Message) -> None:
 
 
 async def _on_inline(q: InlineQuery) -> None:
-    query = (q.query or "").strip()
+    raw_query = (q.query or "").strip()
 
-    if not query:
+    if not raw_query:
         hint = "Введите выражение, напр.: (2+3)*10 - 50%"
         await q.answer(
             results=[
@@ -79,6 +93,8 @@ async def _on_inline(q: InlineQuery) -> None:
             cache_time=1,
         )
         return
+
+    query = _normalize_expr(raw_query)
 
     try:
         value = evaluate(query)
@@ -100,7 +116,6 @@ async def _on_inline(q: InlineQuery) -> None:
         )
         return
 
-    # округление до 3 знаков
     value_rounded = value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP)
 
     pretty = f"{value_rounded.normalize():f}"
