@@ -6,19 +6,23 @@ from datetime import datetime
 from aiogram.types import CallbackQuery
 
 from db_asyncpg.repo import Repo
-from keyboards.request import CB_DEAL_DONE
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.auth import require_manager_or_admin_callback
 
 
 _RE_DONE_LINE = re.compile(
-    r"^\s*✅?\s*Сделка\s+проведена\s*:\s*(?:<code>)?.+?(?:</code>)?\s*$",
+    r"^\s*✅\s*Сделка\s+проведена\s*:\s*(?:<code>)?.+?(?:</code>)?\s*$",
+    re.IGNORECASE | re.M,
+)
+
+_RE_CANCEL_LINE = re.compile(
+    r"^\s*❌\s*Сделка\s+отменена\s*:\s*(?:<code>)?.+?(?:</code>)?\s*$",
     re.IGNORECASE | re.M,
 )
 
 
-class RequestDealDoneService:
+class RequestDealCancelService:
     def __init__(
         self,
         *,
@@ -41,21 +45,24 @@ class RequestDealDoneService:
         return (msg.html_text or msg.text or ""), False
 
     @staticmethod
-    def _upsert_done_line(text: str) -> str:
+    def _upsert_cancel_line(text: str) -> str:
         src = text or ""
-        done_line = f"✅ Сделка проведена: <code>{datetime.now().strftime('%Y-%m-%d %H:%M')}</code>"
+        cancel_line = f"❌ Сделка отменена: <code>{datetime.now().strftime('%Y-%m-%d %H:%M')}</code>"
+
+        if _RE_CANCEL_LINE.search(src):
+            return _RE_CANCEL_LINE.sub(cancel_line, src)
 
         if _RE_DONE_LINE.search(src):
-            return _RE_DONE_LINE.sub(done_line, src)
+            return _RE_DONE_LINE.sub(cancel_line, src)
 
         marker = "\n----\nСоздал"
         idx = src.find(marker)
         if idx != -1:
-            return src[:idx] + "\n" + done_line + src[idx:]
+            return src[:idx] + "\n" + cancel_line + src[idx:]
 
         if src.endswith("\n"):
-            return src + done_line
-        return src + "\n" + done_line
+            return src + cancel_line
+        return src + "\n" + cancel_line
 
     async def handle(self, cq: CallbackQuery) -> None:
         msg = cq.message
@@ -77,11 +84,12 @@ class RequestDealDoneService:
             return
 
         data = (cq.data or "").strip()
-        if not data.startswith(CB_DEAL_DONE):
+        prefix = "cash:deal_cancel:req:"
+        if not data.startswith(prefix):
             await cq.answer("Некорректные данные.", show_alert=True)
             return
 
-        req_id = data[len(CB_DEAL_DONE):].strip()
+        req_id = data[len(prefix):].strip()
         if not req_id:
             await cq.answer("Не удалось определить заявку.", show_alert=True)
             return
@@ -103,7 +111,7 @@ class RequestDealDoneService:
                 pass
 
         old_text, is_caption = self._reply_html_text_and_kind(msg)
-        new_text = self._upsert_done_line(old_text)
+        new_text = self._upsert_cancel_line(old_text)
 
         try:
             if is_caption:
@@ -129,6 +137,6 @@ class RequestDealDoneService:
                 pass
 
         if removed:
-            await cq.answer("Сделка завершена")
+            await cq.answer("Сделка отменена")
         else:
-            await cq.answer("Сделка проведена")
+            await cq.answer("Сделка отменена")

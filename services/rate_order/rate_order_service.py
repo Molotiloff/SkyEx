@@ -42,8 +42,8 @@ class RateOrderService:
     @staticmethod
     def _condition_text(commission: Decimal, *, triggered: bool = False) -> str:
         if commission < 0:
-            return "курс биржи стал ≤ целевого" if triggered else "ждём курс биржи ≤ целевого"
-        return "курс биржи стал ≥ целевого" if triggered else "ждём курс биржи ≥ целевого"
+            return "курс биржи стал ≤ ожидаемого" if triggered else "ждём курс биржи ≤ ожидаемого"
+        return "курс биржи стал ≥ ожидаемого" if triggered else "ждём курс биржи ≥ ожидаемого"
 
     def build_draft_text(
         self,

@@ -6,8 +6,9 @@ from aiogram import F, Router
 from aiogram.filters import Command
 
 from db_asyncpg.repo import Repo
-from keyboards.request import CB_DEAL_DONE, CB_ISSUE_DONE
+from keyboards.request import CB_DEAL_CANCEL, CB_DEAL_DONE, CB_ISSUE_DONE
 from services.cash_requests.constants import CMD_MAP, FX_CMD_MAP
+from services.cash_requests.request_deal_cancel_service import RequestDealCancelService
 from services.cash_requests.request_deal_done_service import RequestDealDoneService
 from services.cash_requests.request_issue_service import RequestIssueService
 from services.cash_requests.request_router_service import RequestRouterService
@@ -78,6 +79,14 @@ class CashRequestsHandler:
             admin_user_ids=self.admin_user_ids,
         )
 
+        self.request_deal_cancel_service = RequestDealCancelService(
+            repo=repo,
+            router_service=self.router_service,
+            schedule_service=self.schedule_service,
+            admin_chat_ids=self.admin_chat_ids,
+            admin_user_ids=self.admin_user_ids,
+        )
+
         self._register()
 
     def _register(self) -> None:
@@ -96,4 +105,8 @@ class CashRequestsHandler:
         self.router.callback_query.register(
             self.request_deal_done_service.handle,
             F.data.startswith(CB_DEAL_DONE),
+        )
+        self.router.callback_query.register(
+            self.request_deal_cancel_service.handle,
+            F.data.startswith(CB_DEAL_CANCEL),
         )

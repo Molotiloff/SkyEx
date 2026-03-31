@@ -1,13 +1,12 @@
-# utils/request_cards.py
 from __future__ import annotations
 
 import html
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup
 
-from keyboards.request import CB_DEAL_DONE
+from keyboards.request import deal_kb
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,15 +44,6 @@ def _req_title(kind: str) -> str:
     return "Заявка на обмен"
 
 
-def _deal_done_keyboard(req_id: str) -> InlineKeyboardMarkup:
-    cb = f"{CB_DEAL_DONE}:req:{req_id}"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Сделка завершена", callback_data=cb)]
-        ]
-    )
-
-
 def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineKeyboardMarkup]]:
     """
     Карточка клиенту: без audit, код в spoiler, без кнопок.
@@ -84,8 +74,7 @@ def build_city_card_dep_wd(
     changed_notice: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """
-    Карточка в чат заявок города: код без spoiler, с audit и кнопкой
-    "Сделка завершена".
+    Карточка в чат заявок города: код без spoiler, с audit и кнопками сделки.
     """
     title = _req_title(data.kind)
     lines: list[str] = []
@@ -116,7 +105,7 @@ def build_city_card_dep_wd(
     lines += list(audit_lines)
 
     text = "\n".join(lines)
-    markup = _deal_done_keyboard(data.req_id)
+    markup = deal_kb(data.req_id)
     return text, markup
 
 
@@ -152,8 +141,7 @@ def build_city_card_fx(
     changed_notice: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
     """
-    FX в чат заявок города: с audit, код без spoiler, с кнопкой
-    "Сделка завершена".
+    FX в чат заявок города: с audit и кнопками сделки.
     """
     lines: list[str] = []
     if changed_notice:
@@ -186,5 +174,5 @@ def build_city_card_fx(
     lines += list(audit_lines)
 
     text = "\n".join(lines)
-    markup = _deal_done_keyboard(data.req_id)
+    markup = deal_kb(data.req_id)
     return text, markup

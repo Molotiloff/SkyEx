@@ -1,12 +1,15 @@
-# keyboards/request.py
 from __future__ import annotations
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 from decimal import Decimal
+
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 CB_PARTNER = "req:partner"
 CB_TABLE_DONE = "req:table_done"
 CB_ISSUE_DONE = "req:issue_done"
-CB_DEAL_DONE = "cash:deal_done"
+
+CB_DEAL_DONE = "cash:deal_done:req:"
+CB_DEAL_CANCEL = "cash:deal_cancel:req:"
 
 # Удаление строк из таблиц по номеру заявки (подтверждение)
 CB_TABLE_DEL = "req:table_del"
@@ -14,15 +17,21 @@ CB_TABLE_DEL_YES = "req:table_del:yes"
 CB_TABLE_DEL_NO = "req:table_del:no"
 
 
-def deal_done_kb(req_id: str) -> InlineKeyboardMarkup:
+def deal_kb(req_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="Сделка завершена",
-                    callback_data=f"{CB_DEAL_DONE}:req:{req_id}",
+                    callback_data=f"{CB_DEAL_DONE}{req_id}",
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Сделка отменена",
+                    callback_data=f"{CB_DEAL_CANCEL}{req_id}",
+                )
+            ],
         ]
     )
 
@@ -89,6 +98,12 @@ def delete_from_table_keyboard(
       - да: req:table_del:yes:<REQ_ID>
       - нет: req:table_del:no:<REQ_ID>
     """
-    yes = InlineKeyboardButton(text="✅ Удалить из таблиц", callback_data=f"{CB_TABLE_DEL_YES}:{req_id}")
-    no  = InlineKeyboardButton(text="✖️ Оставить",          callback_data=f"{CB_TABLE_DEL_NO}:{req_id}")
+    yes = InlineKeyboardButton(
+        text="✅ Удалить из таблиц",
+        callback_data=f"{CB_TABLE_DEL_YES}:{req_id}",
+    )
+    no = InlineKeyboardButton(
+        text="✖️ Оставить",
+        callback_data=f"{CB_TABLE_DEL_NO}:{req_id}",
+    )
     return InlineKeyboardMarkup(inline_keyboard=[[yes, no]])
