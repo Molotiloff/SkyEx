@@ -54,8 +54,7 @@ class GrinexOrderbookService:
         sep = "-" * (price_width + 3 + volume_width)
 
         lines = [
-            "📊 Глубина стакана продаж для USDT/A7A5",
-            "",
+            "〽️ <b>Глубина стакана продаж для USDT/A7A5</b>",
             header,
             sep,
         ]
@@ -67,7 +66,6 @@ class GrinexOrderbookService:
 
         lines += [
             sep,
-            "",
             f"Всего объём: {fmt(total_volume)}",
             f"Количество ордеров: {len(rows)}",
         ]
@@ -87,7 +85,7 @@ class GrinexOrderbookService:
             return "Стакан Grinex пока недоступен."
 
         return (
-            "📊 <b>Первый ордер на покупку для USDT/A7A5</b>\n\n"
+            "〽️ <b>Первый ордер на покупку для USDT/A7A5</b>\n\n"
             f"Цена: <code>{self._fmt_num(price)}</code>\n"
             f"Объём: <code>{self._fmt_num(volume)}</code>"
         )
