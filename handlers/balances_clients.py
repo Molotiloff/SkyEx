@@ -252,18 +252,6 @@ class ClientsBalancesHandler:
                 "min_negative_balance": SCHEDULED_USDT_DEBT_THRESHOLD,
                 "min_positive_balance": None,
             },
-            {
-                "code": "RUB",
-                "sign": "+",
-                "min_negative_balance": None,
-                "min_positive_balance": SCHEDULED_RUB_POSITIVE_THRESHOLD,
-            },
-            {
-                "code": "USDT",
-                "sign": "+",
-                "min_negative_balance": None,
-                "min_positive_balance": SCHEDULED_USDT_POSITIVE_THRESHOLD,
-            },
         ]
 
         for chat_id in self.admin_chat_ids:
