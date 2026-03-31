@@ -10,6 +10,7 @@ from typing import Awaitable, Callable
 
 import certifi
 import websockets
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 
 log = logging.getLogger("grinex_ws")
 
@@ -34,6 +35,8 @@ class GrinexWsService:
     ) -> None:
         self.on_best_ask = on_best_ask
         self.best_ask: Decimal | None = None
+        self.asks: list[dict] = []
+        self.bids: list[dict] = []
         self._task: asyncio.Task | None = None
         self._stopped = False
         self._ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -65,15 +68,33 @@ class GrinexWsService:
         except Exception as e:
             log.warning("Grinex on_best_ask callback error: %r", e)
 
+    def get_asks(self) -> list[dict]:
+        return list(self.asks)
+
+    def get_bids(self) -> list[dict]:
+        return list(self.bids)
+
+    def get_best_bid(self) -> Decimal | None:
+        if not self.bids:
+            return None
+        try:
+            return Decimal(str(self.bids[0]["price"]))
+        except Exception:
+            return None
+
     async def _run(self) -> None:
+        reconnect_delay = 3
+
         while not self._stopped:
             try:
+                log.info("Grinex websocket connecting")
                 async with websockets.connect(
                     WS_URL,
                     origin="https://grinex.io",
                     ssl=self._ssl_context,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    ping_interval=30,
+                    ping_timeout=60,
+                    close_timeout=10,
                     max_size=2 * 1024 * 1024,
                 ) as ws:
                     log.info("Grinex websocket connected")
@@ -89,6 +110,11 @@ class GrinexWsService:
                             continue
 
                         asks = book.get("ask") or []
+                        bids = book.get("bid") or []
+
+                        self.asks = asks
+                        self.bids = bids
+
                         if not asks:
                             continue
 
@@ -101,12 +127,22 @@ class GrinexWsService:
                             continue
 
                         self.best_ask = best_ask
-                        log.info("Grinex best ask updated: %s", best_ask)
-
                         await self._notify_best_ask(best_ask)
 
             except asyncio.CancelledError:
                 raise
+            except ConnectionClosedOK:
+                log.info("Grinex websocket closed normally")
+                if not self._stopped:
+                    log.info("Grinex websocket reconnecting in %s sec", reconnect_delay)
+                    await asyncio.sleep(reconnect_delay)
+            except ConnectionClosedError as e:
+                log.warning("Grinex websocket connection lost: %r", e)
+                if not self._stopped:
+                    log.info("Grinex websocket reconnecting in %s sec", reconnect_delay)
+                    await asyncio.sleep(reconnect_delay)
             except Exception as e:
                 log.warning("Grinex websocket error: %r", e)
-                await asyncio.sleep(3)
+                if not self._stopped:
+                    log.info("Grinex websocket reconnecting in %s sec", reconnect_delay)
+                    await asyncio.sleep(reconnect_delay)

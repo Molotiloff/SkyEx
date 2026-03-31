@@ -15,6 +15,7 @@ from handlers.city import CityAssignHandler
 from handlers.clients import ClientsHandler
 from handlers.cross import CrossRateHandler
 from handlers.debug import debug_router
+from handlers.grinex_book import GrinexBookHandler
 from handlers.managers import ManagersHandler
 from handlers.nonzero import NonZeroHandler
 from handlers.office_cards import OfficeCardsHandler
@@ -26,6 +27,7 @@ from handlers.usdt_wallet import UsdtWalletHandler
 from handlers.wallets import WalletsHandler
 from middlewares.dedup import DedupMiddleware
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
+from services.rate_order.grinex_orderbook_service import GrinexOrderbookService
 from services.rate_order.grinex_ws_service import GrinexWsService
 from services.rate_order.rate_order_service import RateOrderService
 from utils.offices import OFFICE_CARDS
@@ -61,10 +63,13 @@ class BotApp:
         self.dp.callback_query.middleware(DedupMiddleware())
 
         self.repo = Repo()
+
         self.daily_balances_scheduler = None
+        self.grinex_ws_service = None
+        self.grinex_orderbook_service = None
+        self.grinex_book_handler = None
         self.rate_order_service = None
         self.rate_order_handler = None
-        self.grinex_ws_service = None
 
         self.managers_handler = ManagersHandler(
             self.repo,
@@ -150,13 +155,29 @@ class BotApp:
         )
         self.dp.include_router(self.city_handler.router)
 
-        if self.config.rate_orders_chat_id:
-            self.grinex_ws_service = GrinexWsService()
+        # Grinex websocket и стакан доступны всегда
+        self.grinex_ws_service = GrinexWsService(
+            on_best_ask=self._on_grinex_best_ask,
+        )
 
+        self.grinex_orderbook_service = GrinexOrderbookService(
+            ws_service=self.grinex_ws_service,
+        )
+
+        self.grinex_book_handler = GrinexBookHandler(
+            self.repo,
+            orderbook_service=self.grinex_orderbook_service,
+            admin_chat_ids=admin_chat_list,
+            admin_user_ids=admin_user_list,
+        )
+        self.dp.include_router(self.grinex_book_handler.router)
+
+        # Ордера работают только если задан чат ордеров
+        if self.config.rate_orders_chat_id:
             self.rate_order_service = RateOrderService(
                 repo=self.repo,
                 orders_chat_id=self.config.rate_orders_chat_id,
-                get_current_best_ask=lambda: self.grinex_ws_service.best_ask,
+                get_current_best_ask=lambda: self.grinex_ws_service.best_ask if self.grinex_ws_service else None,
             )
 
             self.rate_order_handler = RateOrderHandler(
@@ -167,13 +188,6 @@ class BotApp:
                 orders_chat_id=self.config.rate_orders_chat_id,
             )
             self.dp.include_router(self.rate_order_handler.router)
-
-            self.grinex_ws_service.on_best_ask = (
-                lambda ask: self.rate_order_service.process_best_ask(
-                    bot=self.bot,
-                    best_ask=ask,
-                )
-            )
 
         self.dp.include_router(self.start_handler.router)
         self.dp.include_router(self.calc_handler.router)
@@ -191,6 +205,15 @@ class BotApp:
                 admin_chat_ids=[self.config.admin_chat_id] if self.config.admin_chat_id else [],
                 admin_user_ids=self.config.admin_ids,
             )
+        )
+
+    async def _on_grinex_best_ask(self, best_ask) -> None:
+        if not self.rate_order_service:
+            return
+
+        await self.rate_order_service.process_best_ask(
+            bot=self.bot,
+            best_ask=best_ask,
         )
 
     async def _on_startup(self) -> None:
@@ -215,7 +238,8 @@ class BotApp:
         logging.info("Connecting to Postgres…")
         await create_pool(self.config.database_url)
         logging.info(
-            "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, city_cash_chat_ids=%s, rate_orders_chat_id=%s)",
+            "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, "
+            "city_cash_chat_ids=%s, rate_orders_chat_id=%s)",
             self.config.request_chat_id,
             self.config.cash_chat_map,
             self.ignore_chat_ids,
