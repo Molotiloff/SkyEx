@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 
 from db_asyncpg.repo import Repo
 from services.cash_requests.models import ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
+
+log = logging.getLogger("request_schedule")
 
 
 class RequestScheduleService:
@@ -90,33 +95,108 @@ class RequestScheduleService:
         city_norm = self._norm_city(city)
         schedule_chat_id = self.router_service.pick_schedule_chat_for_city(city_norm)
         if not schedule_chat_id:
+            log.info("Schedule board skipped: no schedule chat configured for city=%s", city_norm)
             return
 
         text = await self.render_board(city_norm)
         board = await self.repo.get_request_schedule_board(city=city_norm)
 
         if board:
+            board_chat_id = int(board["board_chat_id"])
+            board_message_id = int(board["board_message_id"])
+
+            log.info(
+                "Trying to edit schedule board city=%s chat_id=%s message_id=%s",
+                city_norm,
+                board_chat_id,
+                board_message_id,
+            )
+
             try:
                 await bot.edit_message_text(
-                    chat_id=int(board["board_chat_id"]),
-                    message_id=int(board["board_message_id"]),
+                    chat_id=board_chat_id,
+                    message_id=board_message_id,
                     text=text,
                     parse_mode="HTML",
                 )
+                log.info(
+                    "Schedule board updated city=%s chat_id=%s message_id=%s",
+                    city_norm,
+                    board_chat_id,
+                    board_message_id,
+                )
                 return
-            except Exception:
-                try:
-                    await bot.delete_message(
-                        chat_id=int(board["board_chat_id"]),
-                        message_id=int(board["board_message_id"]),
+
+            except TelegramBadRequest as e:
+                err = str(e).lower()
+
+                if "message is not modified" in err:
+                    log.info(
+                        "Schedule board not modified city=%s chat_id=%s message_id=%s",
+                        city_norm,
+                        board_chat_id,
+                        board_message_id,
                     )
-                except Exception:
-                    pass
+                    return
+
+                log.warning(
+                    "Failed to edit schedule board city=%s chat_id=%s message_id=%s: %s",
+                    city_norm,
+                    board_chat_id,
+                    board_message_id,
+                    e,
+                )
+
+                if "message to edit not found" in err or "message can't be edited" in err:
+                    try:
+                        await bot.delete_message(
+                            chat_id=board_chat_id,
+                            message_id=board_message_id,
+                        )
+                        log.info(
+                            "Old schedule board deleted city=%s chat_id=%s message_id=%s",
+                            city_norm,
+                            board_chat_id,
+                            board_message_id,
+                        )
+                    except Exception as del_e:
+                        log.warning(
+                            "Failed to delete old schedule board city=%s chat_id=%s message_id=%s: %r",
+                            city_norm,
+                            board_chat_id,
+                            board_message_id,
+                            del_e,
+                        )
+                else:
+                    log.warning(
+                        "Schedule board edit error is not recoverable by resend city=%s chat_id=%s message_id=%s",
+                        city_norm,
+                        board_chat_id,
+                        board_message_id,
+                    )
+                    return
+
+            except Exception as e:
+                log.warning(
+                    "Unexpected error editing schedule board city=%s chat_id=%s message_id=%s: %r",
+                    city_norm,
+                    board_chat_id,
+                    board_message_id,
+                    e,
+                )
+                return
 
         msg = await bot.send_message(
             chat_id=int(schedule_chat_id),
             text=text,
             parse_mode="HTML",
+        )
+
+        log.info(
+            "New schedule board created city=%s chat_id=%s message_id=%s",
+            city_norm,
+            int(msg.chat.id),
+            int(msg.message_id),
         )
 
         await self.repo.upsert_request_schedule_board(
