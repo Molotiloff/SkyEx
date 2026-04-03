@@ -194,6 +194,35 @@ class CashRequestService:
             except Exception:
                 pass
 
+    async def _edit_request_chat_message(
+        self,
+        *,
+        bot,
+        req_id: str,
+        text_city: str,
+        city_markup,
+    ) -> tuple[int, int] | None:
+        old_entry = await self.repo.get_request_schedule_entry_by_req_id(req_id=req_id)
+        if not old_entry:
+            return None
+
+        old_chat_id = old_entry.get("request_chat_id")
+        old_message_id = old_entry.get("request_message_id")
+        if not old_chat_id or not old_message_id:
+            return None
+
+        try:
+            await bot.edit_message_text(
+                chat_id=int(old_chat_id),
+                message_id=int(old_message_id),
+                text=text_city,
+                parse_mode="HTML",
+                reply_markup=city_markup,
+            )
+            return int(old_chat_id), int(old_message_id)
+        except Exception:
+            return None
+
     def help_text(self) -> str:
         cities = ", ".join(sorted(self.router_service.city_keys)) if self.router_service.city_keys else "—"
         return (
@@ -564,17 +593,33 @@ class CashRequestService:
             return
 
         if ctx.request_chat_id:
-            try:
-                sent_city = await message.bot.send_message(
-                    chat_id=ctx.request_chat_id,
-                    text=text_city,
-                    parse_mode="HTML",
-                    reply_markup=city_markup,
-                )
-            except Exception:
-                sent_city = None
+            edited_msg_ref = await self._edit_request_chat_message(
+                bot=message.bot,
+                req_id=src.req_id,
+                text_city=text_city,
+                city_markup=city_markup,
+            )
 
-            if sent_city and schedule_line:
+            sent_chat_id: int | None = None
+            sent_message_id: int | None = None
+
+            if edited_msg_ref:
+                sent_chat_id, sent_message_id = edited_msg_ref
+            else:
+                try:
+                    sent_city = await message.bot.send_message(
+                        chat_id=ctx.request_chat_id,
+                        text=text_city,
+                        parse_mode="HTML",
+                        reply_markup=city_markup,
+                    )
+                    sent_chat_id = int(sent_city.chat.id)
+                    sent_message_id = int(sent_city.message_id)
+                except Exception:
+                    sent_chat_id = None
+                    sent_message_id = None
+
+            if sent_chat_id and sent_message_id and schedule_line:
                 await self._sync_schedule_keep_existing_time(
                     req_id=src.req_id,
                     city=ctx.city,
@@ -582,8 +627,8 @@ class CashRequestService:
                     line_text=schedule_line,
                     request_kind=parsed.kind,
                     client_name=ctx.chat_name,
-                    request_chat_id=sent_city.chat.id,
-                    request_message_id=sent_city.message_id,
+                    request_chat_id=sent_chat_id,
+                    request_message_id=sent_message_id,
                     bot=message.bot,
                 )
 

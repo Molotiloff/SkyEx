@@ -957,3 +957,35 @@ class Repo:
                     int(order_id),
                 )
                 return res.endswith(" 1")
+
+    async def get_request_schedule_entry_by_req_id(
+            self,
+            *,
+            req_id: str,
+    ) -> dict[str, Any] | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_request_schedule_table(con)
+                row = await con.fetchrow(
+                    """
+                    SELECT
+                        req_id,
+                        city,
+                        hhmm,
+                        request_kind,
+                        line_text,
+                        client_name,
+                        request_chat_id,
+                        request_message_id,
+                        is_active,
+                        created_at,
+                        updated_at
+                    FROM request_schedule_entries
+                    WHERE req_id = $1
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    req_id,
+                )
+                return dict(row) if row else None
