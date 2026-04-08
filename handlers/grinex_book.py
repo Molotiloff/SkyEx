@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
-from services.rate_order.grinex_orderbook_service import GrinexOrderbookService
+from services.rate_order import GrinexOrderbookService
 from utils.auth import require_manager_or_admin_message
 
 

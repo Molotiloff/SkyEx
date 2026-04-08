@@ -7,14 +7,17 @@ from aiogram.filters import Command
 
 from db_asyncpg.repo import Repo
 from keyboards.request import CB_DEAL_CANCEL, CB_DEAL_DONE, CB_ISSUE_DONE
-from services.cash_requests.constants import CMD_MAP, FX_CMD_MAP
-from services.cash_requests.request_deal_cancel_service import RequestDealCancelService
-from services.cash_requests.request_deal_done_service import RequestDealDoneService
-from services.cash_requests.request_issue_service import RequestIssueService
-from services.cash_requests.request_router_service import RequestRouterService
-from services.cash_requests.request_schedule_service import RequestScheduleService
-from services.cash_requests.request_service import CashRequestService
-from services.cash_requests.request_time_service import RequestTimeService
+from services.cash_requests import (
+    CMD_MAP,
+    FX_CMD_MAP,
+    CashRequestService,
+    RequestDealCancelService,
+    RequestDealDoneService,
+    RequestIssueService,
+    RequestRouterService,
+    RequestScheduleService,
+    RequestTimeService,
+)
 
 
 class CashRequestsHandler:
