@@ -70,7 +70,7 @@ class GetBlockAMLClient:
         self,
         path: str,
         *,
-        max_attempts: int = 10,
+        max_attempts: int = 20,
         delay_seconds: float = 3.0,
         **kwargs,
     ) -> requests.Response:
