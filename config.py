@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+from services.aml.getblock_settings import GetBlockSettings
 
 
 def _parse_int(s: str | None) -> int | None:
@@ -79,6 +80,8 @@ class Config:
 
     # кассы города (операционные чаты кассиров)
     city_cash_chat_ids: set[int]
+    getblock: GetBlockSettings | None
+
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -118,6 +121,25 @@ class Config:
 
         city_cash_chat_ids = _parse_ids_set(os.getenv("CITY_CASH_CHAT_IDS"))
 
+        getblock_identity = os.getenv("GETBLOCK_IDENTITY", "").strip()
+        getblock_password = os.getenv("GETBLOCK_PASSWORD", "").strip()
+
+        getblock = None
+        if getblock_identity and getblock_password:
+            getblock = GetBlockSettings(
+                identity=getblock_identity,
+                password=getblock_password,
+                lang=os.getenv("GETBLOCK_LANG", "en").strip(),
+                user_id=os.getenv("GETBLOCK_USER_ID", "").strip(),
+                currency_code=os.getenv("GETBLOCK_CURRENCY_CODE", "TRX").strip(),
+                token_id=os.getenv("GETBLOCK_TOKEN_ID", "9").strip(),
+                aml_provider=os.getenv("GETBLOCK_AML_PROVIDER", "2").strip(),
+                direction=os.getenv("GETBLOCK_DIRECTION", "2").strip(),
+                source=os.getenv("GETBLOCK_SOURCE", "1").strip(),
+                type_=os.getenv("GETBLOCK_TYPE", "0").strip(),
+                reports_dir=os.getenv("GETBLOCK_REPORTS_DIR", "reports").strip(),
+            )
+
         return cls(
             bot_token=token,
             database_url=db_url,
@@ -130,4 +152,6 @@ class Config:
             rate_orders_chat_id=rate_orders_chat_id,
             default_city=default_city,
             city_cash_chat_ids=city_cash_chat_ids,
+            getblock=getblock,
         )
+    

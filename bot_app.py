@@ -8,6 +8,7 @@ from db_asyncpg.pool import create_pool, close_pool
 from db_asyncpg.repo import Repo
 from handlers.accept_short import AcceptShortHandler
 from handlers.admin_request import AdminRequestHandler
+from handlers.aml import AMLHandler
 from handlers.balances_clients import ClientsBalancesHandler
 from handlers.calc import CalcHandler
 from handlers.cash_requests import CashRequestsHandler
@@ -26,6 +27,7 @@ from handlers.start import StartHandler
 from handlers.usdt_wallet import UsdtWalletHandler
 from handlers.wallets import WalletsHandler
 from middlewares.dedup import DedupMiddleware
+from services.aml import AMLQueueService, AMLService
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
 from services.rate_order.grinex_orderbook_service import GrinexOrderbookService
 from services.rate_order.grinex_ws_service import GrinexWsService
@@ -70,6 +72,9 @@ class BotApp:
         self.grinex_book_handler = None
         self.rate_order_service = None
         self.rate_order_handler = None
+        self.aml_service = None
+        self.aml_queue_service = None
+        self.aml_handler = None
 
         self.managers_handler = ManagersHandler(
             self.repo,
@@ -155,6 +160,20 @@ class BotApp:
         )
         self.dp.include_router(self.city_handler.router)
 
+        # AML доступен только если настроен GetBlock
+        if self.config.getblock:
+            self.aml_service = AMLService(settings=self.config.getblock)
+            self.aml_queue_service = AMLQueueService(
+                aml_service=self.aml_service,
+            )
+            self.aml_handler = AMLHandler(
+                self.repo,
+                aml_queue_service=self.aml_queue_service,
+                admin_chat_ids=admin_chat_list,
+                admin_user_ids=admin_user_list,
+            )
+            self.dp.include_router(self.aml_handler.router)
+
         # Grinex websocket и стакан доступны всегда
         self.grinex_ws_service = GrinexWsService(
             on_best_ask=self._on_grinex_best_ask,
@@ -221,6 +240,10 @@ class BotApp:
             self.daily_balances_scheduler.start()
             logging.info("Daily balances scheduler started")
 
+        if self.aml_queue_service:
+            await self.aml_queue_service.start()
+            logging.info("AML queue service started")
+
         if self.grinex_ws_service:
             await self.grinex_ws_service.start()
             logging.info("Grinex websocket service started")
@@ -229,6 +252,10 @@ class BotApp:
         if self.daily_balances_scheduler and self.daily_balances_scheduler.running:
             self.daily_balances_scheduler.shutdown(wait=False)
             logging.info("Daily balances scheduler stopped")
+
+        if self.aml_queue_service:
+            await self.aml_queue_service.stop()
+            logging.info("AML queue service stopped")
 
         if self.grinex_ws_service:
             await self.grinex_ws_service.stop()
@@ -239,12 +266,13 @@ class BotApp:
         await create_pool(self.config.database_url)
         logging.info(
             "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, "
-            "city_cash_chat_ids=%s, rate_orders_chat_id=%s)",
+            "city_cash_chat_ids=%s, rate_orders_chat_id=%s, aml_enabled=%s)",
             self.config.request_chat_id,
             self.config.cash_chat_map,
             self.ignore_chat_ids,
             self.config.city_cash_chat_ids,
             self.config.rate_orders_chat_id,
+            bool(self.config.getblock),
         )
         try:
             await self.dp.start_polling(self.bot)
