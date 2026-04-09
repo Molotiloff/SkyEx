@@ -7,7 +7,6 @@ from .calc import CalcHandler
 from .cash_requests import CashRequestsHandler
 from .city import CityAssignHandler
 from .clients import ClientsHandler
-from .cross import CrossRateHandler
 from .debug import debug_router
 from .grinex_book import GrinexBookHandler
 from .managers import ManagersHandler
@@ -30,7 +29,6 @@ __all__ = [
     "CashRequestsHandler",
     "CityAssignHandler",
     "ClientsHandler",
-    "CrossRateHandler",
     "GrinexBookHandler",
     "ManagersHandler",
     "NonZeroHandler",
