@@ -14,7 +14,6 @@ from handlers import (
     CityAssignHandler,
     ClientsBalancesHandler,
     ClientsHandler,
-    CrossRateHandler,
     GrinexBookHandler,
     ManagersHandler,
     NonZeroHandler,
@@ -74,9 +73,6 @@ def setup_handlers(
         config.admin_chat_id,
     )
     dp.include_router(managers_handler.router)
-
-    cross_handler = CrossRateHandler()
-    dp.include_router(cross_handler.router)
 
     usdt_wallet_handler = UsdtWalletHandler(
         repo,

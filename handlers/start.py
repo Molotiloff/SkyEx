@@ -3,7 +3,7 @@ from aiogram import Router
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 
-from keyboards.main import MainKeyboard
+from keyboards import MainKeyboard
 from db_asyncpg.repo import Repo
 from utils.info import get_chat_name
 from utils.wallet_bootstrap import ensure_default_accounts, DEFAULT_CURRENCIES

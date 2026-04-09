@@ -9,7 +9,7 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from db_asyncpg.repo import Repo
-from keyboards.request import request_keyboard#, delete_from_table_keyboard
+from keyboards import request_keyboard#, delete_from_table_keyboard
 from utils.calc import CalcError, evaluate
 from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core

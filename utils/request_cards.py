@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 
 from aiogram.types import InlineKeyboardMarkup
 
-from keyboards.request import deal_kb
+from keyboards import deal_kb
 
 
 @dataclass(frozen=True, slots=True)

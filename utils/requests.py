@@ -13,7 +13,7 @@ from gutils.sheets import (
     SheetsNotConfigured,
     SheetsReadError,
 )
-from keyboards.confirm import confirm_kb as _confirm_kb  # штатная Да/Нет клавиатура
+from keyboards import confirm_kb as _confirm_kb
 from utils.auth import require_manager_or_admin_callback
 from utils.info import get_chat_name
 

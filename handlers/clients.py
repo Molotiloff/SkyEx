@@ -6,7 +6,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
 from db_asyncpg.repo import Repo
-from keyboards.confirm import confirm_kb
+from keyboards import confirm_kb
 
 
 def _chunk(text: str, limit: int = 3500) -> list[str]:
