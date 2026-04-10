@@ -1,4 +1,3 @@
-# handlers/office_cards.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,7 +6,7 @@ from typing import Mapping
 
 from aiogram import Router
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import FSInputFile, Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,29 +22,36 @@ class OfficeCard:
 class OfficeCardsHandler:
     """
     Генератор команд вида /екб, /члб, ...
-    Каждая команда отправляет фото + текст (caption).
+    Каждая команда отправляет:
+      1) фото + текст, если есть photo_file_id
+      2) фото + текст, если есть image_path
+      3) просто текст, если картинка не задана
 
     Приоритет:
       1) photo_file_id
-      2) image_path (fallback, если file_id не задан)
+      2) image_path
+      3) caption как обычное сообщение
     """
 
     def __init__(self, cards: Mapping[str, OfficeCard]) -> None:
         self.router = Router()
-        self.cards: dict[str, OfficeCard] = {k.strip().lower(): v for k, v in cards.items()}
+        self.cards: dict[str, OfficeCard] = {
+            k.strip().lower(): v for k, v in cards.items()
+        }
         self._register()
 
     def _register(self) -> None:
-        # Регистрируем каждую команду явно (ignore_mention=True ловит /cmd@BotName)
         for cmd in self.cards.keys():
-            self.router.message.register(self._send_card, Command(cmd, ignore_mention=True))
+            self.router.message.register(
+                self._send_card,
+                Command(cmd, ignore_mention=True),
+            )
 
     async def _send_card(self, message: Message) -> None:
         text = (message.text or "").strip()
         if not text.startswith("/"):
             return
 
-        # "/екб@bot ..." -> "екб"
         cmd_token = text[1:].split(None, 1)[0]
         cmd = cmd_token.split("@", 1)[0].strip().lower()
 
@@ -53,7 +59,7 @@ class OfficeCardsHandler:
         if not card:
             return
 
-        # 1) отправка по file_id (без аплоада) — предпочтительно
+        # 1) отправка по file_id
         if card.photo_file_id:
             await message.answer_photo(
                 photo=card.photo_file_id,
@@ -62,25 +68,31 @@ class OfficeCardsHandler:
             )
             return
 
-        # 2) fallback на локальный файл (если file_id ещё не задан)
-        if not card.image_path:
-            await message.answer("Для этой карточки не задан ни photo_file_id, ни image_path.")
+        # 2) fallback на локальный файл
+        if card.image_path:
+            if not card.image_path.exists():
+                await message.answer(
+                    f"Файл не найден: {card.image_path.as_posix()}",
+                )
+                return
+
+            sent = await message.answer_photo(
+                photo=FSInputFile(card.image_path),
+                caption=card.caption,
+                parse_mode="HTML",
+            )
+
+            try:
+                if sent.photo:
+                    fid = sent.photo[-1].file_id
+                    print(f"[office_cards] command=/{cmd} file_id={fid}")
+            except Exception:
+                pass
             return
 
-        if not card.image_path.exists():
-            await message.answer(f"Файл не найден: {card.image_path.as_posix()}")
-            return
-
-        sent = await message.answer_photo(
-            photo=FSInputFile(card.image_path),
-            caption=card.caption,
+        # 3) если картинки нет — просто отправляем текст
+        await message.answer(
+            card.caption,
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
-
-        # печатаем file_id в лог, чтобы один раз скопировать и дальше аплоада не было
-        try:
-            if sent.photo:
-                fid = sent.photo[-1].file_id
-                print(f"[office_cards] command=/{cmd} file_id={fid}")
-        except Exception:
-            pass
