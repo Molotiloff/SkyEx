@@ -38,7 +38,7 @@ OFFICE_CARDS: dict[str, OfficeCard] = {
     "тюм": OfficeCard(
             command="тюм",
             photo_file_id=None,
-            image_path=None,
+            image_path=Path("images/tum_office.jpg"),
             caption=(
                 "📍 <b>Адрес офиса:</b>\n"
                 "г. Тюмень, ул. <b>Чернышевского, 1Б</b>\n"
