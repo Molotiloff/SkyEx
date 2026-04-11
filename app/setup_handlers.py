@@ -26,7 +26,6 @@ from handlers import (
     get_table_delete_router,
     get_table_done_router,
     CalcHandler,
-    BroadcastAllHandler
 )
 from services.aml import AMLQueueService, AMLService
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
@@ -74,13 +73,6 @@ def setup_handlers(
         config.admin_chat_id,
     )
     dp.include_router(managers_handler.router)
-
-    broadcast_handler = BroadcastAllHandler(
-        repo,
-        admin_chat_ids=set(admin_chat_list or []),
-        admin_user_ids=set(admin_user_list or []),
-    )
-    dp.include_router(broadcast_handler.router)
 
     usdt_wallet_handler = UsdtWalletHandler(
         repo,
