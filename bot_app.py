@@ -50,6 +50,12 @@ class BotApp:
             await self.services.aml_queue_service.start()
             logging.info("AML queue service started")
 
+        if self.services.grinex_orderbook_service:
+            await self.services.grinex_orderbook_service.restore_live_message(
+                admin_chat_id=self.config.admin_chat_id,
+            )
+            logging.info("Grinex live orderbook message restored")
+
         if self.services.grinex_ws_service:
             await self.services.grinex_ws_service.start()
             logging.info("Grinex websocket service started")

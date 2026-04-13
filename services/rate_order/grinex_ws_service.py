@@ -32,8 +32,10 @@ class GrinexWsService:
         self,
         *,
         on_best_ask: Callable[[Decimal], Awaitable[None] | None] | None = None,
+        on_orderbook_update: Callable[[], Awaitable[None] | None] | None = None,
     ) -> None:
         self.on_best_ask = on_best_ask
+        self.on_orderbook_update = on_orderbook_update
         self.best_ask: Decimal | None = None
         self.asks: list[dict] = []
         self.bids: list[dict] = []
@@ -67,6 +69,18 @@ class GrinexWsService:
                 await result
         except Exception as e:
             log.warning("Grinex on_best_ask callback error: %r", e)
+
+    async def _notify_orderbook_update(self) -> None:
+        cb = self.on_orderbook_update
+        if cb is None:
+            return
+
+        try:
+            result = cb()
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            log.warning("Grinex on_orderbook_update callback error: %r", e)
 
     def get_asks(self) -> list[dict]:
         return list(self.asks)
@@ -112,8 +126,14 @@ class GrinexWsService:
                         asks = book.get("ask") or []
                         bids = book.get("bid") or []
 
+                        old_asks = self.asks
+                        old_bids = self.bids
+
                         self.asks = asks
                         self.bids = bids
+
+                        if old_asks != asks or old_bids != bids:
+                            await self._notify_orderbook_update()
 
                         if not asks:
                             continue

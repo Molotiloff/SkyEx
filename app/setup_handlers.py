@@ -165,6 +165,11 @@ def setup_handlers(
     services.grinex_ws_service = GrinexWsService()
     services.grinex_orderbook_service = GrinexOrderbookService(
         ws_service=services.grinex_ws_service,
+        repo=repo,
+    )
+
+    services.grinex_ws_service.on_orderbook_update = (
+        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
     )
 
     grinex_book_handler = GrinexBookHandler(
