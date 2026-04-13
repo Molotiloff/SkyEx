@@ -26,6 +26,7 @@ from handlers import (
     get_table_delete_router,
     get_table_done_router,
     CalcHandler,
+    BroadcastAllHandler,
 )
 from services.aml import AMLQueueService, AMLService
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
@@ -142,6 +143,13 @@ def setup_handlers(
         admin_chat_ids=admin_chat_list,
     )
     dp.include_router(clients_handler.router)
+
+    broadcast_all_handler = BroadcastAllHandler(
+        repo,
+        admin_chat_ids=set(admin_chat_list or []),
+        admin_user_ids=set(admin_user_list or []),
+    )
+    dp.include_router(broadcast_all_handler.router)
 
     city_handler = CityAssignHandler(
         repo,
