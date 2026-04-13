@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from decimal import Decimal
 
 from aiogram import Bot
@@ -25,7 +26,9 @@ class GrinexOrderbookService:
     def _fmt_num(v: Decimal) -> str:
         return f"{v:,.2f}"
 
-    # ---------- LIVE MESSAGE CONTROL ----------
+    @staticmethod
+    def _fmt_updated_at() -> str:
+        return datetime.now().strftime("%d.%m.%Y %H:%M:%S")
 
     async def set_live_message(self, *, chat_id: int, message_id: int) -> None:
         self._live_chat_id = int(chat_id)
@@ -67,8 +70,6 @@ class GrinexOrderbookService:
             self._live_chat_id,
             self._live_message_id,
         )
-
-    # ---------- BUILD TEXT ----------
 
     def build_asks_depth_text(
         self,
@@ -146,20 +147,18 @@ class GrinexOrderbookService:
         )
 
     def build_live_text(
-            self,
-            *,
-            min_total_volume: Decimal = Decimal("500000"),
-            min_order_volume: Decimal = Decimal("1000"),
+        self,
+        *,
+        min_total_volume: Decimal = Decimal("500000"),
+        min_order_volume: Decimal = Decimal("1000"),
     ) -> str:
-        return (
-            f"{self.build_asks_depth_text(
-                min_total_volume=min_total_volume,
-                min_order_volume=min_order_volume,
-            )}\n\n"
-            f"{self.build_first_bid_text()}"
-        )
+        updated_at = self._fmt_updated_at()
 
-    # ---------- UPDATE MESSAGE ----------
+        return (
+            f"{self.build_asks_depth_text(min_total_volume=min_total_volume, min_order_volume=min_order_volume)}\n\n"
+            f"{self.build_first_bid_text()}\n\n"
+            f"Актуально на {updated_at}"
+        )
 
     async def refresh_live_message(self, *, bot: Bot) -> None:
         if not self._live_chat_id or not self._live_message_id:
