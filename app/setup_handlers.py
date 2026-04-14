@@ -105,6 +105,7 @@ def setup_handlers(
         request_chat_id=request_chat_id,
         ignore_chat_ids=ignore_chat_ids,
     )
+    dp.include_router(accept_short_handler.router)
 
     cash_requests_handler = CashRequestsHandler(
         repo,
@@ -215,7 +216,6 @@ def setup_handlers(
 
     dp.include_router(start_handler.router)
     dp.include_router(calc_handler.router)
-    dp.include_router(accept_short_handler.router)
     dp.include_router(nonzero_handler.router)
     dp.include_router(wallets_handler.router)
 
