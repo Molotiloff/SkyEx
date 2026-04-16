@@ -71,13 +71,24 @@ class GrinexOrderbookService:
             self._live_message_id,
         )
 
+    def _is_ws_available(self) -> bool:
+        return self.ws_service is not None
+
     def build_asks_depth_text(
         self,
         *,
         min_total_volume: Decimal = Decimal("500000"),
         min_order_volume: Decimal = Decimal("1000"),
     ) -> str:
-        asks = self.ws_service.get_asks()
+        if not self._is_ws_available():
+            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nПодключение к Grinex отключено."
+
+        try:
+            asks = self.ws_service.get_asks()
+        except Exception as e:
+            log.warning("Failed to get asks from ws_service: %r", e)
+            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+
         if not asks:
             return "〽️ Глубина стакана продаж для USDT/A7A5\n\nСтакан Grinex пока недоступен."
 
@@ -129,7 +140,15 @@ class GrinexOrderbookService:
         return "\n".join(lines)
 
     def build_first_bid_text(self) -> str:
-        bids = self.ws_service.get_bids()
+        if not self._is_ws_available():
+            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nПодключение к Grinex отключено."
+
+        try:
+            bids = self.ws_service.get_bids()
+        except Exception as e:
+            log.warning("Failed to get bids from ws_service: %r", e)
+            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+
         if not bids:
             return "〽️ Первый ордер на покупку для USDT/A7A5\n\nСтакан Grinex пока недоступен."
 

@@ -56,10 +56,6 @@ class BotApp:
             )
             logging.info("Grinex live orderbook message restored")
 
-        if self.services.grinex_ws_service:
-            await self.services.grinex_ws_service.start()
-            logging.info("Grinex websocket service started")
-
     async def _on_shutdown(self) -> None:
         scheduler = self.services.daily_balances_scheduler
         if scheduler and scheduler.running:
@@ -69,10 +65,6 @@ class BotApp:
         if self.services.aml_queue_service:
             await self.services.aml_queue_service.stop()
             logging.info("AML queue service stopped")
-
-        if self.services.grinex_ws_service:
-            await self.services.grinex_ws_service.stop()
-            logging.info("Grinex websocket service stopped")
 
     async def run(self) -> None:
         logging.info("Connecting to Postgres…")

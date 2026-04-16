@@ -90,14 +90,10 @@ def setup_handlers(
 
     nonzero_handler = NonZeroHandler(repo)
 
-    services.grinex_ws_service = GrinexWsService()
+    services.grinex_ws_service = None
     services.grinex_orderbook_service = GrinexOrderbookService(
-        ws_service=services.grinex_ws_service,
+        ws_service=None,
         repo=repo,
-    )
-
-    services.grinex_ws_service.on_orderbook_update = (
-        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
     )
 
     grinex_book_handler = GrinexBookHandler(
@@ -112,9 +108,7 @@ def setup_handlers(
         services.rate_order_service = RateOrderService(
             repo=repo,
             orders_chat_id=config.rate_orders_chat_id,
-            get_current_best_ask=lambda: (
-                services.grinex_ws_service.best_ask if services.grinex_ws_service else None
-            ),
+            get_current_best_ask=None,
         )
 
         rate_order_handler = RateOrderHandler(
@@ -125,13 +119,6 @@ def setup_handlers(
             orders_chat_id=config.rate_orders_chat_id,
         )
         dp.include_router(rate_order_handler.router)
-
-        services.grinex_ws_service.on_best_ask = (
-            lambda ask: services.rate_order_service.process_best_ask(
-                bot=bot,
-                best_ask=ask,
-            )
-        )
 
     wallets_handler = WalletsHandler(
         repo,
