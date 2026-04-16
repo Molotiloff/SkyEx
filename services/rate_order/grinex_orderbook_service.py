@@ -141,7 +141,8 @@ class GrinexOrderbookService:
 
     def build_first_bid_text(self) -> str:
         if not self._is_ws_available():
-            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nПодключение к Grinex отключено."
+            return ("〽️ Первый ордер на покупку для USDT/A7A5\n\nПодключение к Grinex отключено. В связи с проблемами "
+                    "со стороны биржи.")
 
         try:
             bids = self.ws_service.get_bids()
