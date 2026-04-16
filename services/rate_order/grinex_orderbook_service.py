@@ -81,7 +81,8 @@ class GrinexOrderbookService:
         min_order_volume: Decimal = Decimal("1000"),
     ) -> str:
         if not self._is_ws_available():
-            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nПодключение к Grinex отключено."
+            return ("〽️ Глубина стакана продаж для USDT/A7A5\n\nПодключение к Grinex отключено. В связи с проблемами "
+                    "со стороны биржи.")
 
         try:
             asks = self.ws_service.get_asks()
