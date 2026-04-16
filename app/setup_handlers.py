@@ -90,6 +90,49 @@ def setup_handlers(
 
     nonzero_handler = NonZeroHandler(repo)
 
+    services.grinex_ws_service = GrinexWsService()
+    services.grinex_orderbook_service = GrinexOrderbookService(
+        ws_service=services.grinex_ws_service,
+        repo=repo,
+    )
+
+    services.grinex_ws_service.on_orderbook_update = (
+        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
+    )
+
+    grinex_book_handler = GrinexBookHandler(
+        repo,
+        orderbook_service=services.grinex_orderbook_service,
+        admin_chat_ids=admin_chat_list,
+        admin_user_ids=admin_user_list,
+    )
+    dp.include_router(grinex_book_handler.router)
+
+    if config.rate_orders_chat_id:
+        services.rate_order_service = RateOrderService(
+            repo=repo,
+            orders_chat_id=config.rate_orders_chat_id,
+            get_current_best_ask=lambda: (
+                services.grinex_ws_service.best_ask if services.grinex_ws_service else None
+            ),
+        )
+
+        rate_order_handler = RateOrderHandler(
+            repo,
+            rate_order_service=services.rate_order_service,
+            admin_chat_ids=admin_chat_list,
+            admin_user_ids=admin_user_list,
+            orders_chat_id=config.rate_orders_chat_id,
+        )
+        dp.include_router(rate_order_handler.router)
+
+        services.grinex_ws_service.on_best_ask = (
+            lambda ask: services.rate_order_service.process_best_ask(
+                bot=bot,
+                best_ask=ask,
+            )
+        )
+
     wallets_handler = WalletsHandler(
         repo,
         admin_chat_ids=admin_chat_list,
@@ -170,49 +213,6 @@ def setup_handlers(
             admin_user_ids=admin_user_list,
         )
         dp.include_router(aml_handler.router)
-
-    services.grinex_ws_service = GrinexWsService()
-    services.grinex_orderbook_service = GrinexOrderbookService(
-        ws_service=services.grinex_ws_service,
-        repo=repo,
-    )
-
-    services.grinex_ws_service.on_orderbook_update = (
-        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
-    )
-
-    grinex_book_handler = GrinexBookHandler(
-        repo,
-        orderbook_service=services.grinex_orderbook_service,
-        admin_chat_ids=admin_chat_list,
-        admin_user_ids=admin_user_list,
-    )
-    dp.include_router(grinex_book_handler.router)
-
-    if config.rate_orders_chat_id:
-        services.rate_order_service = RateOrderService(
-            repo=repo,
-            orders_chat_id=config.rate_orders_chat_id,
-            get_current_best_ask=lambda: (
-                services.grinex_ws_service.best_ask if services.grinex_ws_service else None
-            ),
-        )
-
-        rate_order_handler = RateOrderHandler(
-            repo,
-            rate_order_service=services.rate_order_service,
-            admin_chat_ids=admin_chat_list,
-            admin_user_ids=admin_user_list,
-            orders_chat_id=config.rate_orders_chat_id,
-        )
-        dp.include_router(rate_order_handler.router)
-
-        services.grinex_ws_service.on_best_ask = (
-            lambda ask: services.rate_order_service.process_best_ask(
-                bot=bot,
-                best_ask=ask,
-            )
-        )
 
     dp.include_router(start_handler.router)
     dp.include_router(calc_handler.router)
