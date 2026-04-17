@@ -130,7 +130,7 @@ async def _on_inline(q: InlineQuery) -> None:
             "Нажмите здесь, чтобы поделиться расчетами в этом чате"
         ),
         input_message_content=InputTextMessageContent(
-            message_text=f"<b>{query}</b> = <code>{pretty}</code>",
+            message_text=f"<code>{query}</code> = <code>{pretty}</code>",
             parse_mode="HTML",
         ),
     )
