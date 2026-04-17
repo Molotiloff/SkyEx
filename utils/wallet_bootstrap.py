@@ -9,8 +9,6 @@ DEFAULT_CURRENCIES: list[tuple[str, int]] = [
     ("EUR", 2),
     ("EUR500", 2),
     ("РУБПЕР", 2),
-    ("РУБСПБ", 2),
-    ("РУБМСК", 2),
 ]
 
 
