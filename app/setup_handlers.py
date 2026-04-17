@@ -32,7 +32,7 @@ from services.aml import AMLQueueService, AMLService
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
 from services.rate_order import (
     GrinexOrderbookService,
-    GrinexWsService,
+    RapiraWsService,
     RateOrderService,
 )
 from utils.offices import OFFICE_CARDS
@@ -42,7 +42,7 @@ from utils.requests import get_issue_router
 @dataclass(slots=True)
 class AppServices:
     daily_balances_scheduler: object | None = None
-    grinex_ws_service: GrinexWsService | None = None
+    grinex_ws_service: RapiraWsService | None = None
     grinex_orderbook_service: GrinexOrderbookService | None = None
     rate_order_service: RateOrderService | None = None
     aml_service: AMLService | None = None
@@ -90,10 +90,15 @@ def setup_handlers(
 
     nonzero_handler = NonZeroHandler(repo)
 
-    services.grinex_ws_service = None
+    services.grinex_ws_service = RapiraWsService()
+
     services.grinex_orderbook_service = GrinexOrderbookService(
-        ws_service=None,
+        ws_service=services.grinex_ws_service,
         repo=repo,
+    )
+
+    services.grinex_ws_service.on_orderbook_update = (
+        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
     )
 
     grinex_book_handler = GrinexBookHandler(
@@ -108,7 +113,10 @@ def setup_handlers(
         services.rate_order_service = RateOrderService(
             repo=repo,
             orders_chat_id=config.rate_orders_chat_id,
-            get_current_best_ask=None,
+            get_current_best_ask=lambda: (
+                services.grinex_ws_service.best_ask
+                if services.grinex_ws_service else None
+            ),
         )
 
         rate_order_handler = RateOrderHandler(
@@ -119,6 +127,14 @@ def setup_handlers(
             orders_chat_id=config.rate_orders_chat_id,
         )
         dp.include_router(rate_order_handler.router)
+
+        # триггер при изменении best ask
+        services.grinex_ws_service.on_best_ask = (
+            lambda ask: services.rate_order_service.process_best_ask(
+                bot=bot,
+                best_ask=ask,
+            )
+        )
 
     wallets_handler = WalletsHandler(
         repo,

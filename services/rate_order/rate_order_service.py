@@ -31,13 +31,13 @@ class RateOrderService:
 
     def _current_ask_line(self) -> str:
         if not self.get_current_best_ask:
-            return "<b>Актуальный курс Grinex</b>: <code>недоступен</code>"
+            return "<b>Актуальный курс Биржи</b>: <code>недоступен</code>"
 
         current_ask = self.get_current_best_ask()
         if current_ask is None:
-            return "<b>Актуальный курс Grinex</b>: <code>недоступен</code>"
+            return "<b>Актуальный курс Биржи</b>: <code>недоступен</code>"
 
-        return f"<b>Актуальный курс Grinex</b>: <code>{self._fmt_rate(current_ask)}</code>"
+        return f"<b>Актуальный курс Биржи</b>: <code>{self._fmt_rate(current_ask)}</code>"
 
     @staticmethod
     def _condition_text(commission: Decimal, *, triggered: bool = False) -> str:

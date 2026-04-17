@@ -54,7 +54,11 @@ class BotApp:
             await self.services.grinex_orderbook_service.restore_live_message(
                 admin_chat_id=self.config.admin_chat_id,
             )
-            logging.info("Grinex live orderbook message restored")
+            logging.info("Rapira live orderbook message restored")
+
+        if self.services.grinex_ws_service:
+            await self.services.grinex_ws_service.start()
+            logging.info("Rapira websocket service started")
 
     async def _on_shutdown(self) -> None:
         scheduler = self.services.daily_balances_scheduler
@@ -66,18 +70,23 @@ class BotApp:
             await self.services.aml_queue_service.stop()
             logging.info("AML queue service stopped")
 
+        if self.services.grinex_ws_service:
+            await self.services.grinex_ws_service.stop()
+            logging.info("Rapira websocket service stopped")
+
     async def run(self) -> None:
         logging.info("Connecting to Postgres…")
         await create_pool(self.config.database_url)
         logging.info(
             "Bot is starting… (request_chat_id=%s, city_cash_chats=%s, ignore_chat_ids=%s, "
-            "city_cash_chat_ids=%s, rate_orders_chat_id=%s, aml_enabled=%s)",
+            "city_cash_chat_ids=%s, rate_orders_chat_id=%s, aml_enabled=%s, rapira_enabled=%s)",
             self.config.request_chat_id,
             self.config.cash_chat_map,
             self.ignore_chat_ids,
             self.config.city_cash_chat_ids,
             self.config.rate_orders_chat_id,
             bool(self.config.getblock),
+            self.services.grinex_ws_service is not None,
         )
         try:
             await self.dp.start_polling(self.bot)
