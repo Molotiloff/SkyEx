@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 class BroadcastAllHandler:
     BROADCAST_PROMPT_TEXT = (
-        "Прикрепите сообщение и картинку для рассылки всем клиентам "
+        "Прикрепите сообщение и картинку для рассылки "
         "в ответ на это сообщение."
     )
 
@@ -43,6 +43,9 @@ class BroadcastAllHandler:
 
         # chat_id -> set[prompt_message_id]
         self._pending_prompt_messages: dict[int, set[int]] = defaultdict(set)
+
+        # prompt_message_id -> broadcast target metadata
+        self._pending_prompt_meta: dict[int, dict] = {}
 
         # (chat_id, media_group_id) -> list[Message]
         self._media_group_buffer: dict[tuple[int, str], list[Message]] = defaultdict(list)
@@ -68,6 +71,32 @@ class BroadcastAllHandler:
             ]
         )
 
+    @staticmethod
+    def _extract_group_from_command(text: str) -> str | None:
+        parts = (text or "").strip().split(maxsplit=1)
+        if len(parts) < 2:
+            return None
+
+        group = parts[1].strip()
+        return group or None
+
+    async def _get_target_clients(self, *, group: str | None = None) -> list[dict]:
+        clients = await self.repo.list_clients()
+        if not group:
+            return clients
+
+        group_norm = group.strip().casefold()
+        return [
+            c for c in clients
+            if str(c.get("client_group") or "").strip().casefold() == group_norm
+        ]
+
+    @staticmethod
+    def _target_label(group: str | None) -> str:
+        if group:
+            return f"для группы «{group}»"
+        return "для всех клиентов"
+
     async def _cmd_all(self, message: Message) -> None:
         if not await require_manager_or_admin_message(
             self.repo,
@@ -77,13 +106,24 @@ class BroadcastAllHandler:
         ):
             return
 
-        clients = await self.repo.list_clients()
+        target_group = self._extract_group_from_command(message.text or "")
+        clients = await self._get_target_clients(group=target_group)
+
         if not clients:
-            await message.answer("Нет активных клиентов для рассылки.")
+            if target_group:
+                await message.answer(f"Нет активных клиентов в группе «{target_group}».")
+            else:
+                await message.answer("Нет активных клиентов для рассылки.")
             return
 
-        prompt = await message.answer(self.BROADCAST_PROMPT_TEXT)
+        prompt = await message.answer(
+            f"{self.BROADCAST_PROMPT_TEXT}\n\n"
+            f"Целевая аудитория: {self._target_label(target_group)}."
+        )
         self._pending_prompt_messages[message.chat.id].add(prompt.message_id)
+        self._pending_prompt_meta[prompt.message_id] = {
+            "group": target_group,
+        }
 
     async def _handle_broadcast_reply(self, message: Message) -> None:
         if not await require_manager_or_admin_message(
@@ -108,6 +148,7 @@ class BroadcastAllHandler:
 
         await self._preview_and_confirm(message)
         self._pending_prompt_messages[message.chat.id].discard(reply_msg.message_id)
+        self._pending_prompt_meta.pop(reply_msg.message_id, None)
 
     async def _collect_and_preview_media_group(self, message: Message) -> None:
         key = (message.chat.id, message.media_group_id)
@@ -132,8 +173,13 @@ class BroadcastAllHandler:
 
         await self._preview_and_confirm_media_group(messages)
         self._pending_prompt_messages[messages[0].chat.id].discard(reply_msg.message_id)
+        self._pending_prompt_meta.pop(reply_msg.message_id, None)
 
     async def _preview_and_confirm(self, source_message: Message) -> None:
+        reply_msg = source_message.reply_to_message
+        prompt_meta = self._pending_prompt_meta.get(reply_msg.message_id if reply_msg else 0, {})
+        target_group = prompt_meta.get("group")
+
         if source_message.photo:
             file_id = source_message.photo[-1].file_id
             preview = await source_message.answer_photo(
@@ -147,6 +193,7 @@ class BroadcastAllHandler:
                 "file_id": file_id,
                 "caption": source_message.caption,
                 "caption_entities": source_message.caption_entities,
+                "group": target_group,
             }
             return
 
@@ -160,6 +207,7 @@ class BroadcastAllHandler:
                 "type": "text",
                 "text": source_message.text,
                 "entities": source_message.entities,
+                "group": target_group,
             }
             return
 
@@ -167,6 +215,10 @@ class BroadcastAllHandler:
 
     async def _preview_and_confirm_media_group(self, messages: list[Message]) -> None:
         messages = sorted(messages, key=lambda m: m.message_id)
+
+        reply_msg = messages[0].reply_to_message
+        prompt_meta = self._pending_prompt_meta.get(reply_msg.message_id if reply_msg else 0, {})
+        target_group = prompt_meta.get("group")
 
         media: list[InputMediaPhoto] = []
         payload_media: list[dict] = []
@@ -205,7 +257,7 @@ class BroadcastAllHandler:
         )
 
         control = await messages[0].answer(
-            "Подтвердите рассылку альбома:",
+            f"Подтвердите рассылку альбома {self._target_label(target_group)}:",
             reply_markup=self._build_confirm_kb(),
         )
 
@@ -214,6 +266,7 @@ class BroadcastAllHandler:
             "media": payload_media,
             "caption": caption,
             "caption_entities": caption_entities,
+            "group": target_group,
         }
 
     async def _handle_broadcast_action(self, cq: CallbackQuery) -> None:
@@ -269,9 +322,14 @@ class BroadcastAllHandler:
         await msg.answer("Неизвестный тип рассылки.")
 
     async def _send_broadcast_from_payload(self, source_message: Message, payload: dict) -> None:
-        clients = await self.repo.list_clients()
+        target_group = payload.get("group")
+        clients = await self._get_target_clients(group=target_group)
+
         if not clients:
-            await source_message.answer("Нет активных клиентов для рассылки.")
+            if target_group:
+                await source_message.answer(f"Нет активных клиентов в группе «{target_group}».")
+            else:
+                await source_message.answer("Нет активных клиентов для рассылки.")
             return
 
         sent = 0
@@ -328,9 +386,14 @@ class BroadcastAllHandler:
         )
 
     async def _send_broadcast_media_group_payload(self, source_message: Message, payload: dict) -> None:
-        clients = await self.repo.list_clients()
+        target_group = payload.get("group")
+        clients = await self._get_target_clients(group=target_group)
+
         if not clients:
-            await source_message.answer("Нет активных клиентов для рассылки.")
+            if target_group:
+                await source_message.answer(f"Нет активных клиентов в группе «{target_group}».")
+            else:
+                await source_message.answer("Нет активных клиентов для рассылки.")
             return
 
         media_payload = payload.get("media") or []
