@@ -141,7 +141,7 @@ def setup_handlers(
         repo,
         admin_chat_ids=admin_chat_list,
         admin_user_ids=admin_user_list,
-        ignore_chat_ids=ignore_chat_ids,
+        ignore_chat_ids=None,
         city_cash_chat_ids=city_cash_chat_ids,
     )
 
@@ -150,7 +150,7 @@ def setup_handlers(
         admin_chat_ids=admin_chat_list,
         admin_user_ids=admin_user_list,
         request_chat_id=request_chat_id,
-        ignore_chat_ids=ignore_chat_ids,
+        ignore_chat_ids=None,
     )
     dp.include_router(accept_short_handler.router)
 
