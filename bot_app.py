@@ -50,14 +50,14 @@ class BotApp:
             await self.services.aml_queue_service.start()
             logging.info("AML queue service started")
 
-        if self.services.grinex_orderbook_service:
-            await self.services.grinex_orderbook_service.restore_live_message(
+        if self.services.orderbook_service:
+            await self.services.orderbook_service.restore_live_message(
                 admin_chat_id=self.config.admin_chat_id,
             )
             logging.info("Rapira live orderbook message restored")
 
-        if self.services.grinex_ws_service:
-            await self.services.grinex_ws_service.start()
+        if self.services.market_ws_service:
+            await self.services.market_ws_service.start()
             logging.info("Rapira websocket service started")
 
     async def _on_shutdown(self) -> None:
@@ -70,8 +70,8 @@ class BotApp:
             await self.services.aml_queue_service.stop()
             logging.info("AML queue service stopped")
 
-        if self.services.grinex_ws_service:
-            await self.services.grinex_ws_service.stop()
+        if self.services.market_ws_service:
+            await self.services.market_ws_service.stop()
             logging.info("Rapira websocket service stopped")
 
     async def run(self) -> None:
@@ -86,7 +86,7 @@ class BotApp:
             self.config.city_cash_chat_ids,
             self.config.rate_orders_chat_id,
             bool(self.config.getblock),
-            self.services.grinex_ws_service is not None,
+            self.services.market_ws_service is not None,
         )
         try:
             await self.dp.start_polling(self.bot)

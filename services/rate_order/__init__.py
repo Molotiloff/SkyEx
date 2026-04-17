@@ -1,9 +1,9 @@
-from .grinex_orderbook_service import GrinexOrderbookService
+from .orderbook_service import OrderbookService
 from .rapira_ws_service import RapiraWsService
 from .rate_order_service import RateOrderService
 
 __all__ = [
-    "GrinexOrderbookService",
+    "OrderbookService",
     "RapiraWsService",
     "RateOrderService",
 ]

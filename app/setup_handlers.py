@@ -31,7 +31,7 @@ from handlers import (
 from services.aml import AMLQueueService, AMLService
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
 from services.rate_order import (
-    GrinexOrderbookService,
+    OrderbookService,
     RapiraWsService,
     RateOrderService,
 )
@@ -42,8 +42,8 @@ from utils.requests import get_issue_router
 @dataclass(slots=True)
 class AppServices:
     daily_balances_scheduler: object | None = None
-    grinex_ws_service: RapiraWsService | None = None
-    grinex_orderbook_service: GrinexOrderbookService | None = None
+    market_ws_service: RapiraWsService | None = None
+    orderbook_service: OrderbookService | None = None
     rate_order_service: RateOrderService | None = None
     aml_service: AMLService | None = None
     aml_queue_service: AMLQueueService | None = None
@@ -90,20 +90,22 @@ def setup_handlers(
 
     nonzero_handler = NonZeroHandler(repo)
 
-    services.grinex_ws_service = RapiraWsService()
+    services.market_ws_service = RapiraWsService()
 
-    services.grinex_orderbook_service = GrinexOrderbookService(
-        ws_service=services.grinex_ws_service,
+    services.orderbook_service = OrderbookService(
+        ws_service=services.market_ws_service,
         repo=repo,
+        exchange_name="Rapira",
+        symbol_label="USDT/RUB",
     )
 
-    services.grinex_ws_service.on_orderbook_update = (
-        lambda: services.grinex_orderbook_service.refresh_live_message(bot=bot)
+    services.market_ws_service.on_orderbook_update = (
+        lambda: services.orderbook_service.refresh_live_message(bot=bot)
     )
 
     grinex_book_handler = GrinexBookHandler(
         repo,
-        orderbook_service=services.grinex_orderbook_service,
+        orderbook_service=services.orderbook_service,
         admin_chat_ids=admin_chat_list,
         admin_user_ids=admin_user_list,
     )
@@ -114,8 +116,8 @@ def setup_handlers(
             repo=repo,
             orders_chat_id=config.rate_orders_chat_id,
             get_current_best_ask=lambda: (
-                services.grinex_ws_service.best_ask
-                if services.grinex_ws_service else None
+                services.market_ws_service.best_ask
+                if services.market_ws_service else None
             ),
         )
 
@@ -128,8 +130,7 @@ def setup_handlers(
         )
         dp.include_router(rate_order_handler.router)
 
-        # триггер при изменении best ask
-        services.grinex_ws_service.on_best_ask = (
+        services.market_ws_service.on_best_ask = (
             lambda ask: services.rate_order_service.process_best_ask(
                 bot=bot,
                 best_ask=ask,

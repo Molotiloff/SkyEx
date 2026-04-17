@@ -9,15 +9,26 @@ from aiogram.exceptions import TelegramBadRequest
 
 from db_asyncpg.repo import Repo
 
-log = logging.getLogger("grinex_orderbook")
+log = logging.getLogger("orderbook_service")
 
 
-class GrinexOrderbookService:
-    LIVE_MESSAGE_KEY = "grinex_live"
+class OrderbookService:
+    LIVE_MESSAGE_KEY = "orderbook_live"
 
-    def __init__(self, *, ws_service, repo: Repo) -> None:
+    def __init__(
+        self,
+        *,
+        ws_service,
+        repo: Repo,
+        exchange_name: str = "Биржа",
+        symbol_label: str = "USDT/RUB",
+        disabled_reason: str | None = None,
+    ) -> None:
         self.ws_service = ws_service
         self.repo = repo
+        self.exchange_name = exchange_name
+        self.symbol_label = symbol_label
+        self.disabled_reason = disabled_reason
 
         self._live_chat_id: int | None = None
         self._live_message_id: int | None = None
@@ -29,6 +40,12 @@ class GrinexOrderbookService:
     @staticmethod
     def _fmt_updated_at() -> str:
         return datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+
+    def _title_asks(self) -> str:
+        return f"〽️ Глубина стакана продаж для {self.symbol_label}"
+
+    def _title_bid(self) -> str:
+        return f"〽️ Первый ордер на покупку для {self.symbol_label}"
 
     async def set_live_message(self, *, chat_id: int, message_id: int) -> None:
         self._live_chat_id = int(chat_id)
@@ -74,6 +91,10 @@ class GrinexOrderbookService:
     def _is_ws_available(self) -> bool:
         return self.ws_service is not None
 
+    def _disabled_text(self) -> str:
+        reason = self.disabled_reason or f"Подключение к {self.exchange_name} отключено."
+        return reason
+
     def build_asks_depth_text(
         self,
         *,
@@ -81,17 +102,16 @@ class GrinexOrderbookService:
         min_order_volume: Decimal = Decimal("1000"),
     ) -> str:
         if not self._is_ws_available():
-            return ("〽️ Глубина стакана продаж для USDT/A7A5\n\nПодключение к Grinex отключено. В связи с проблемами "
-                    "со стороны биржи.")
+            return f"{self._title_asks()}\n\n{self._disabled_text()}"
 
         try:
             asks = self.ws_service.get_asks()
         except Exception as e:
             log.warning("Failed to get asks from ws_service: %r", e)
-            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+            return f"{self._title_asks()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         if not asks:
-            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+            return f"{self._title_asks()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         rows: list[tuple[Decimal, Decimal]] = []
         total_volume = Decimal("0")
@@ -113,7 +133,7 @@ class GrinexOrderbookService:
                 break
 
         if not rows:
-            return "〽️ Глубина стакана продаж для USDT/A7A5\n\nНет значимых ордеров (все < 1000)."
+            return f"{self._title_asks()}\n\nНет значимых ордеров (все < 1000)."
 
         price_width = max(len("Цена"), *(len(self._fmt_num(p)) for p, _ in rows))
         volume_width = max(len("Объём"), *(len(self._fmt_num(v)) for _, v in rows))
@@ -122,7 +142,7 @@ class GrinexOrderbookService:
         sep = "-" * (price_width + 3 + volume_width)
 
         lines = [
-            "〽️ Глубина стакана продаж для USDT/A7A5",
+            self._title_asks(),
             header,
             sep,
         ]
@@ -142,27 +162,26 @@ class GrinexOrderbookService:
 
     def build_first_bid_text(self) -> str:
         if not self._is_ws_available():
-            return ("〽️ Первый ордер на покупку для USDT/A7A5\n\nПодключение к Grinex отключено. В связи с проблемами "
-                    "со стороны биржи.")
+            return f"{self._title_bid()}\n\n{self._disabled_text()}"
 
         try:
             bids = self.ws_service.get_bids()
         except Exception as e:
             log.warning("Failed to get bids from ws_service: %r", e)
-            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+            return f"{self._title_bid()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         if not bids:
-            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+            return f"{self._title_bid()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         try:
             first = bids[0]
             price = Decimal(str(first["price"]))
             volume = Decimal(str(first["volume"]))
         except Exception:
-            return "〽️ Первый ордер на покупку для USDT/A7A5\n\nСтакан Grinex пока недоступен."
+            return f"{self._title_bid()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         return (
-            "〽️ Первый ордер на покупку для USDT/A7A5\n\n"
+            f"{self._title_bid()}\n\n"
             f"Цена: {self._fmt_num(price)}\n"
             f"Объём: {self._fmt_num(volume)}"
         )

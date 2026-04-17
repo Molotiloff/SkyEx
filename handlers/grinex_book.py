@@ -8,7 +8,7 @@ from aiogram.filters import Command
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
-from services.rate_order import GrinexOrderbookService
+from services.rate_order import OrderbookService
 from utils.auth import require_manager_or_admin_message
 
 
@@ -17,7 +17,7 @@ class GrinexBookHandler:
         self,
         repo: Repo,
         *,
-        orderbook_service: GrinexOrderbookService,
+        orderbook_service: OrderbookService,
         admin_chat_ids: Iterable[int] | None = None,
         admin_user_ids: Iterable[int] | None = None,
     ) -> None:
