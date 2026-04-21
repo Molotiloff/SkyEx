@@ -183,6 +183,30 @@ class Repo:
             )
             return [dict(r) for r in rows]
 
+    async def list_clients_by_group(self, client_group: str) -> list[dict]:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            rows = await con.fetch(
+                """
+                SELECT
+                    c.id,
+                    c.chat_id,
+                    c.name,
+                    c.client_group,
+                    c.created_at,
+                    COUNT(a.*) AS accounts_total,
+                    COUNT(a.*) FILTER (WHERE a.is_active) AS accounts_active
+                FROM clients c
+                LEFT JOIN client_accounts a ON a.client_id = c.id
+                WHERE c.is_active = TRUE
+                  AND LOWER(COALESCE(c.client_group, '')) = LOWER($1)
+                GROUP BY c.id
+                ORDER BY c.created_at DESC, c.id DESC
+                """,
+                client_group.strip(),
+            )
+            return [dict(r) for r in rows]
+
     async def add_currency(self, client_id: int, currency_code: str, precision: int) -> int:
         code = to_upper(currency_code)
         pool = await get_pool()

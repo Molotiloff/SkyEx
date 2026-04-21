@@ -24,9 +24,9 @@ def _chunk(text: str, limit: int = 3500) -> list[str]:
 
 class ClientsHandler:
     """
-    /клиенты — список активных клиентов. Доступ: только из admin_chat_ids.
-    /rmclient <chat_id> — мягко удалить клиента (is_active=false) с подтверждением.
-                          Доступ: только из admin_chat_ids.
+    /клиенты — список активных клиентов
+    /клиенты <группа> — список активных клиентов указанной группы
+    /rmclient <chat_id> — мягко удалить клиента (is_active=false) с подтверждением
     """
 
     def __init__(self, repo: Repo, admin_chat_ids: Iterable[int] | None = None) -> None:
@@ -40,9 +40,27 @@ class ClientsHandler:
             await message.answer("Команда доступна только в админском чате.")
             return
 
-        clients = await self.repo.list_clients()
+        parts = (message.text or "").split(maxsplit=1)
+        group = parts[1].strip() if len(parts) > 1 and parts[1].strip() else None
 
-        lines: list[str] = [f"<b>Клиенты: {len(clients)}</b>"]
+        if group:
+            clients = await self.repo.list_clients_by_group(group)
+            title = f"<b>Клиенты группы «{html.escape(group)}»: {len(clients)}</b>"
+        else:
+            clients = await self.repo.list_clients()
+            title = f"<b>Клиенты: {len(clients)}</b>"
+
+        if not clients:
+            if group:
+                await message.answer(
+                    f"В группе «{html.escape(group)}» нет активных клиентов.",
+                    parse_mode="HTML",
+                )
+            else:
+                await message.answer("Нет активных клиентов.")
+            return
+
+        lines: list[str] = [title]
         for c in sorted(clients, key=lambda x: (x.get("name") or "").lower()):
             name = html.escape(c.get("name") or "")
             client_group = html.escape(c.get("client_group") or "")
