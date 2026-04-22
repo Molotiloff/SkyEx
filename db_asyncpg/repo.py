@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from db_asyncpg.repositories import (
     ClientsRepo,
+    ExchangeRequestsRepo,
     LiveMessagesRepo,
     ManagersRepo,
     RateOrdersRepo,
@@ -13,6 +14,7 @@ from db_asyncpg.repositories import (
 
 class Repo(
     ClientsRepo,
+    ExchangeRequestsRepo,
     TransactionsRepo,
     ManagersRepo,
     SettingsRepo,

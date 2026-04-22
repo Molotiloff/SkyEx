@@ -110,3 +110,20 @@ CREATE SEQUENCE IF NOT EXISTS request_id_seq
   CACHE 1;
 
 COMMENT ON SEQUENCE request_id_seq IS 'Последовательные номера заявок (монотонные)';
+
+CREATE TABLE IF NOT EXISTS exchange_request_links (
+    client_req_id TEXT PRIMARY KEY,
+    table_req_id TEXT NOT NULL,
+    client_chat_id BIGINT,
+    client_message_id BIGINT,
+    request_chat_id BIGINT,
+    request_message_id BIGINT,
+    request_text TEXT,
+    is_table_done BOOLEAN NOT NULL DEFAULT FALSE,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exchange_request_links_table_req_id
+    ON exchange_request_links(table_req_id);
