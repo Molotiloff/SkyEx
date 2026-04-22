@@ -5,9 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Union, Any
 
+from googleapiclient.errors import HttpError
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-from googleapiclient.errors import HttpError
 
 
 class SheetsWriteError(Exception):
@@ -49,8 +49,15 @@ def _extract_id_from_url(maybe_url_or_id: str) -> str:
 def _get_credentials() -> Any:
     if _cached["creds"]:
         return _cached["creds"]
-    json_inline = os.getenv("GOOGLE_CREDENTIALS_JSON")
-    json_path = os.getenv("GOOGLE_CREDENTIALS_FILE")
+    json_inline = (
+        os.getenv("GOOGLE_CREDENTIALS_JSON")
+        or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    )
+    json_path = (
+        os.getenv("GOOGLE_CREDENTIALS_FILE")
+        or os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    )
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     if json_inline:
         info = json.loads(json_inline)
@@ -124,6 +131,13 @@ def _read_main_rate_fresh(code: str, cell_map: dict[str, str] | None = None) -> 
         return val if val.is_finite() else None
     except Exception:
         return None
+
+
+def read_main_rate(code: str, cell_map: dict[str, str] | None = None) -> Decimal:
+    value = _read_main_rate_fresh(code, cell_map)
+    if value is None:
+        raise SheetsWriteError(f"Не найден внутренний курс для {code!r} на листе 'Главная'.")
+    return value
 
 
 # === Основные функции ===
