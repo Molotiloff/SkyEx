@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from decimal import Decimal
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 
 from db_asyncpg.repo import Repo
 
@@ -32,6 +33,9 @@ class OrderbookService:
 
         self._live_chat_id: int | None = None
         self._live_message_id: int | None = None
+        self._refresh_lock = asyncio.Lock()
+        self._pending_refresh = False
+        self._retry_after_until = 0.0
 
     @staticmethod
     def _fmt_num(v: Decimal) -> str:
@@ -204,36 +208,71 @@ class OrderbookService:
         if not self._live_chat_id or not self._live_message_id:
             return
 
-        text = self.build_live_text()
+        if self._refresh_lock.locked():
+            self._pending_refresh = True
+            return
+
+        loop = asyncio.get_running_loop()
 
         try:
-            await bot.edit_message_text(
-                chat_id=self._live_chat_id,
-                message_id=self._live_message_id,
-                text=text,
-            )
+            async with self._refresh_lock:
+                while self._live_chat_id and self._live_message_id:
+                    self._pending_refresh = False
 
-        except TelegramBadRequest as e:
-            err = str(e).lower()
+                    now = loop.time()
+                    if now < self._retry_after_until:
+                        await asyncio.sleep(self._retry_after_until - now)
 
-            if "message is not modified" in err:
-                return
+                    text = self.build_live_text()
 
-            if "message to edit not found" in err or "chat not found" in err:
-                await self.clear_live_message()
-                return
+                    try:
+                        await bot.edit_message_text(
+                            chat_id=self._live_chat_id,
+                            message_id=self._live_message_id,
+                            text=text,
+                        )
+                        return
 
-            log.warning(
-                "Failed to refresh live message chat_id=%s message_id=%s: %r",
-                self._live_chat_id,
-                self._live_message_id,
-                e,
-            )
+                    except TelegramRetryAfter as e:
+                        retry_after = max(float(e.retry_after), 1.0)
+                        self._retry_after_until = loop.time() + retry_after
+                        self._pending_refresh = True
+                        log.warning(
+                            "Telegram rate limit while refreshing live message "
+                            "chat_id=%s message_id=%s; retry after %.1fs",
+                            self._live_chat_id,
+                            self._live_message_id,
+                            retry_after,
+                        )
+                        await asyncio.sleep(retry_after)
+                        continue
 
-        except Exception as e:
-            log.warning(
-                "Unexpected error updating live message chat_id=%s message_id=%s: %r",
-                self._live_chat_id,
-                self._live_message_id,
-                e,
-            )
+                    except TelegramBadRequest as e:
+                        err = str(e).lower()
+
+                        if "message is not modified" in err:
+                            return
+
+                        if "message to edit not found" in err or "chat not found" in err:
+                            await self.clear_live_message()
+                            return
+
+                        log.warning(
+                            "Failed to refresh live message chat_id=%s message_id=%s: %r",
+                            self._live_chat_id,
+                            self._live_message_id,
+                            e,
+                        )
+                        return
+
+                    except Exception as e:
+                        log.warning(
+                            "Unexpected error updating live message chat_id=%s message_id=%s: %r",
+                            self._live_chat_id,
+                            self._live_message_id,
+                            e,
+                        )
+                        return
+        finally:
+            if self._pending_refresh and self._live_chat_id and self._live_message_id:
+                asyncio.create_task(self.refresh_live_message(bot=bot))
