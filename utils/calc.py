@@ -141,4 +141,7 @@ def _parse(tokens):
 
 def evaluate(expression: str) -> Decimal:
     tokens = _tokenize(expression)
-    return _parse(tokens)
+    result = _parse(tokens)
+    if isinstance(result, _Percent):
+        return result.value / Decimal(100)
+    return result
