@@ -30,6 +30,13 @@ def get_table_delete_router(*, request_chat_ids: Iterable[int]) -> Router:
 
     @r.callback_query(F.data.startswith(CB_TABLE_DEL_NO))
     async def _cb_delete_no(cq: CallbackQuery) -> None:
+        if not cq.message or cq.message.chat.id not in allowed:
+            await cq.answer("Недоступно здесь.", show_alert=True)
+            return
+        try:
+            await cq.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         await cq.answer("Оставляем строки в таблицах.")
 
     @r.callback_query(F.data.startswith(CB_TABLE_DEL_YES))

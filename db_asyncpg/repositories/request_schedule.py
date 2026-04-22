@@ -6,6 +6,26 @@ from db_asyncpg.pool import get_pool
 
 
 class RequestScheduleRepo:
+    async def _ensure_request_id_sequence(self, con) -> None:
+        await con.execute(
+            """
+            CREATE SEQUENCE IF NOT EXISTS request_id_seq
+              START WITH 100000
+              INCREMENT BY 1
+              MINVALUE 1
+              NO MAXVALUE
+              CACHE 1
+            """
+        )
+
+    async def next_request_id(self) -> int:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_request_id_sequence(con)
+                row = await con.fetchrow("SELECT nextval('request_id_seq') AS value")
+                return int(row["value"])
+
     async def _ensure_request_schedule_table(self, con) -> None:
         await con.execute(
             """

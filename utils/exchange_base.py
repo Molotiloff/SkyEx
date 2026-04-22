@@ -9,14 +9,13 @@ from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
 from db_asyncpg.repo import Repo
-from keyboards import request_keyboard#, delete_from_table_keyboard
+from keyboards import delete_from_table_keyboard, request_keyboard
 from utils.calc import CalcError, evaluate
 from utils.format_wallet_compact import format_wallet_compact
 from utils.formatting import format_amount_core
 from utils.info import _fmt_rate, get_chat_name
 from utils.req_index import req_index
 from utils.requests import post_request_message
-import random
 
 # --- Вспомогательное: парсинг строк из карточки заявки ---
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
@@ -503,9 +502,10 @@ class AbstractExchangeHandler(ABC):
                     request_chat_id=self.request_chat_id,
                     text=(
                         f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
-                        #f"Удалить строки в Google Sheets (Покупка/Продажа) с номером <b>{html.escape(req_id_s)}</b>?"
+                        f"Удалить строки в Google Sheets (Покупка/Продажа) "
+                        f"с номером <b>{html.escape(req_id_s)}</b>?"
                     ),
-                    reply_markup=None#delete_from_table_keyboard(req_id=req_id_s),
+                    reply_markup=delete_from_table_keyboard(req_id=req_id_s),
                 )
             except Exception:
                 pass
@@ -641,7 +641,7 @@ class AbstractExchangeHandler(ABC):
                 return
 
             # 5) тексты заявок
-            req_id = random.randint(10_000_000, 99_999_999)
+            req_id = await self.repo.next_request_id()
             pretty_recv = format_amount_core(recv_amount, recv_prec)
             pretty_pay  = format_amount_core(pay_amount,  pay_prec)
 
