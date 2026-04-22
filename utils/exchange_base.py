@@ -335,21 +335,56 @@ class AbstractExchangeHandler(ABC):
                 req_lines += ["----", f"Комментарий: <code>{html.escape(user_note)}</code> ❗️"]
             req_lines += ["----", f"Изменение: <code>{ts}</code>", "----",
                           f"Создал: <b>{html.escape(creator_name)}</b>"]
-            alert_text = "⚠️ Внимание: заявка изменена.\n\n" + "\n".join(req_lines)
+            request_text = "\n".join(req_lines)
             try:
-                await post_request_message(
-                    message.bot,
-                    self.request_chat_id,
-                    alert_text,
-                    reply_markup=request_keyboard(
-                        in_ccy=recv_code,  # что принимаем
-                        out_ccy=pay_code,  # что отдаём
-                        in_amount=recv_amount,  # сумма "Получаем"
-                        out_amount=pay_amount,  # сумма "Отдаём"
-                        client_rate=rate_str,  # курс из заявки
-                        req_id=edit_req_id,  # номер заявки в кнопку
-                    ),
-                )
+                request_copy = req_index.get_request_chat_copy(str(edit_req_id))
+                if request_copy is not None:
+                    request_chat_id, request_message_id = request_copy
+                    await message.bot.edit_message_text(
+                        chat_id=request_chat_id,
+                        message_id=request_message_id,
+                        text=request_text,
+                        parse_mode="HTML",
+                        reply_markup=request_keyboard(
+                            in_ccy=recv_code,
+                            out_ccy=pay_code,
+                            in_amount=recv_amount,
+                            out_amount=pay_amount,
+                            client_rate=rate_str,
+                            req_id=edit_req_id,
+                        ),
+                    )
+                    await post_request_message(
+                        message.bot,
+                        self.request_chat_id,
+                        f"✏️ Заявка <code>{html.escape(str(edit_req_id))}</code> была изменена",
+                        reply_markup=None,
+                    )
+                else:
+                    sent_request = await post_request_message(
+                        message.bot,
+                        self.request_chat_id,
+                        request_text,
+                        reply_markup=request_keyboard(
+                            in_ccy=recv_code,  # что принимаем
+                            out_ccy=pay_code,  # что отдаём
+                            in_amount=recv_amount,  # сумма "Получаем"
+                            out_amount=pay_amount,  # сумма "Отдаём"
+                            client_rate=rate_str,  # курс из заявки
+                            req_id=edit_req_id,  # номер заявки в кнопку
+                        ),
+                    )
+                    req_index.remember_request_chat_copy(
+                        req_id=str(edit_req_id),
+                        request_chat_id=sent_request.chat.id,
+                        request_message_id=sent_request.message_id,
+                    )
+                    await post_request_message(
+                        message.bot,
+                        self.request_chat_id,
+                        f"✏️ Заявка <code>{html.escape(str(edit_req_id))}</code> была изменена",
+                        reply_markup=None,
+                    )
             except Exception:
                 pass
 
@@ -495,7 +530,7 @@ class AbstractExchangeHandler(ABC):
 
         # уведомление в заявочный чат
         # --- внутри handle_cancel_callback ---
-        if self.request_chat_id:
+        if self.request_chat_id and req_index.is_table_done(req_id_s):
             try:
                 await post_request_message(
                     bot=cq.bot,
@@ -785,7 +820,7 @@ class AbstractExchangeHandler(ABC):
             # 8) заявочный чат — кнопка «Занести в таблицу»
             if self.request_chat_id:
                 try:
-                    await post_request_message(
+                    sent_request = await post_request_message(
                         bot=message.bot,
                         request_chat_id=self.request_chat_id,
                         text=request_text,
@@ -797,6 +832,11 @@ class AbstractExchangeHandler(ABC):
                             client_rate=rate_str,
                             req_id=req_id,
                         ),
+                    )
+                    req_index.remember_request_chat_copy(
+                        req_id=str(req_id),
+                        request_chat_id=sent_request.chat.id,
+                        request_message_id=sent_request.message_id,
                     )
                 except Exception:
                     pass
