@@ -782,14 +782,21 @@ class AbstractExchangeHandler(ABC):
                 except Exception:
                     pass
 
-            # 8) заявочный чат — без кнопок
+            # 8) заявочный чат — кнопка «Занести в таблицу»
             if self.request_chat_id:
                 try:
                     await post_request_message(
                         bot=message.bot,
                         request_chat_id=self.request_chat_id,
                         text=request_text,
-                        reply_markup=None,
+                        reply_markup=request_keyboard(
+                            in_ccy=recv_code,
+                            out_ccy=pay_code,
+                            in_amount=recv_amount,
+                            out_amount=pay_amount,
+                            client_rate=rate_str,
+                            req_id=req_id,
+                        ),
                     )
                 except Exception:
                     pass
