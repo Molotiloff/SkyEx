@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import random
 import re
 from abc import ABC
 from datetime import datetime
@@ -24,6 +25,7 @@ _RE_GIVE = re.compile(r"^Отдаём:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M
 
 # Номер заявки в тексте сообщения бота
 _RE_REQ_ID = re.compile(r"Заявка:\s*(?:<code>)?(\d{6,})(?:</code>)?", re.IGNORECASE)
+_CANCEL_REQUEST_PREFIX = "⛔️ <b>Внимание! Заявка отменена</b>"
 
 # «Создал: ...» в старом тексте
 _RE_CREATED_BY = re.compile(r"^\s*Создал:\s*(?:<b>)?(.+?)(?:</b>)?\s*$", re.I | re.M)
@@ -44,11 +46,14 @@ def _parse_amt_code(payload: str) -> tuple[Decimal, str] | None:
         return None
 
 
-def _cancel_kb(req_id: int | str) -> InlineKeyboardMarkup:
+def _cancel_kb(req_id: int | str, table_req_id: int | str | None = None) -> InlineKeyboardMarkup:
     """Кнопка под клиентской заявкой — «Отменить заявку»."""
+    callback_data = f"req_cancel:{req_id}"
+    if table_req_id is not None:
+        callback_data = f"{callback_data}:{table_req_id}"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Отменить заявку", callback_data=f"req_cancel:{req_id}")]
+            [InlineKeyboardButton(text="Отменить заявку", callback_data=callback_data)]
         ]
     )
 
@@ -61,6 +66,12 @@ class AbstractExchangeHandler(ABC):
     def __init__(self, repo: Repo, request_chat_id: int | None = None) -> None:
         self.repo = repo
         self.request_chat_id = request_chat_id
+
+    async def _get_exchange_request_meta(self, client_req_id: str) -> dict | None:
+        try:
+            return await self.repo.get_exchange_request_link(client_req_id=str(client_req_id))
+        except Exception:
+            return None
 
     # ================================================================
     # Перерасчёт баланса при редактировании существующей заявки
@@ -275,6 +286,13 @@ class AbstractExchangeHandler(ABC):
                 )
         creator_name = creator_name or "unknown"
 
+        meta = await self._get_exchange_request_meta(str(edit_req_id))
+        table_req_id = (
+            req_index.get_table_req_id(str(edit_req_id))
+            or (str(meta["table_req_id"]) if meta and meta.get("table_req_id") else None)
+            or str(edit_req_id)
+        )
+
         parts_client = [
             f"<b>Заявка</b>: <code>{edit_req_id}</code>",
             "-----",
@@ -315,7 +333,7 @@ class AbstractExchangeHandler(ABC):
                 message_id=target_bot_msg_id,
                 text=new_client_text,
                 parse_mode="HTML",
-                reply_markup=_cancel_kb(edit_req_id),
+                reply_markup=_cancel_kb(edit_req_id, table_req_id),
             )
         except Exception as e:
             await message.answer(f"Не удалось изменить заявку: {e}")
@@ -325,6 +343,7 @@ class AbstractExchangeHandler(ABC):
         if self.request_chat_id:
             req_lines = [
                 f"<b>Заявка</b>: <code>{edit_req_id}</code>",
+                f"<b>Номер в таблице</b>: <code>{html.escape(table_req_id)}</code>",
                 f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
                 f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
@@ -338,6 +357,8 @@ class AbstractExchangeHandler(ABC):
             request_text = "\n".join(req_lines)
             try:
                 request_copy = req_index.get_request_chat_copy(str(edit_req_id))
+                if request_copy is None and meta and meta.get("request_chat_id") and meta.get("request_message_id"):
+                    request_copy = (int(meta["request_chat_id"]), int(meta["request_message_id"]))
                 if request_copy is not None:
                     request_chat_id, request_message_id = request_copy
                     await message.bot.edit_message_text(
@@ -351,8 +372,21 @@ class AbstractExchangeHandler(ABC):
                             in_amount=recv_amount,
                             out_amount=pay_amount,
                             client_rate=rate_str,
-                            req_id=edit_req_id,
+                            req_id=table_req_id,
                         ),
+                    )
+                    req_index.remember_request_chat_copy(
+                        req_id=str(edit_req_id),
+                        request_chat_id=request_chat_id,
+                        request_message_id=request_message_id,
+                        text=request_text,
+                    )
+                    await self.repo.upsert_exchange_request_link(
+                        client_req_id=str(edit_req_id),
+                        table_req_id=str(table_req_id),
+                        request_chat_id=request_chat_id,
+                        request_message_id=request_message_id,
+                        request_text=request_text,
                     )
                     await post_request_message(
                         message.bot,
@@ -371,13 +405,25 @@ class AbstractExchangeHandler(ABC):
                             in_amount=recv_amount,  # сумма "Получаем"
                             out_amount=pay_amount,  # сумма "Отдаём"
                             client_rate=rate_str,  # курс из заявки
-                            req_id=edit_req_id,  # номер заявки в кнопку
+                            req_id=table_req_id,  # номер заявки в таблице для кнопки
                         ),
                     )
                     req_index.remember_request_chat_copy(
                         req_id=str(edit_req_id),
                         request_chat_id=sent_request.chat.id,
                         request_message_id=sent_request.message_id,
+                        text=request_text,
+                    )
+                    req_index.remember_table_req_id(
+                        req_id=str(edit_req_id),
+                        table_req_id=str(table_req_id),
+                    )
+                    await self.repo.upsert_exchange_request_link(
+                        client_req_id=str(edit_req_id),
+                        table_req_id=str(table_req_id),
+                        request_chat_id=sent_request.chat.id,
+                        request_message_id=sent_request.message_id,
+                        request_text=request_text,
                     )
                     await post_request_message(
                         message.bot,
@@ -418,7 +464,11 @@ class AbstractExchangeHandler(ABC):
 
         # req_id из callback_data (формат: req_cancel:<id>)
         try:
-            _, req_id_s = (cq.data or "").split(":", 1)
+            parts = (cq.data or "").split(":")
+            if len(parts) < 2:
+                raise ValueError
+            req_id_s = parts[1].strip()
+            table_req_id_from_cb = parts[2].strip() if len(parts) >= 3 else None
         except Exception:
             await cq.answer("Некорректные данные", show_alert=True)
             return
@@ -528,9 +578,55 @@ class AbstractExchangeHandler(ABC):
             except Exception:
                 pass
 
+        meta = await self._get_exchange_request_meta(req_id_s)
+        table_req_id = (
+            table_req_id_from_cb
+            or req_index.get_table_req_id(req_id_s)
+            or (str(meta["table_req_id"]) if meta and meta.get("table_req_id") else None)
+        )
+        request_copy = req_index.get_request_chat_copy(req_id_s)
+        if request_copy is None and meta and meta.get("request_chat_id") and meta.get("request_message_id"):
+            request_copy = (int(meta["request_chat_id"]), int(meta["request_message_id"]))
+        request_text = req_index.get_request_chat_text(req_id_s)
+        if request_text is None and meta and meta.get("request_text"):
+            request_text = str(meta["request_text"])
+
+        if request_copy is not None and request_text:
+            try:
+                cancelled_text = request_text
+                if not cancelled_text.startswith(_CANCEL_REQUEST_PREFIX):
+                    cancelled_text = f"{_CANCEL_REQUEST_PREFIX}\n{cancelled_text}"
+                await cq.bot.edit_message_text(
+                    chat_id=request_copy[0],
+                    message_id=request_copy[1],
+                    text=cancelled_text,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+                req_index.remember_request_chat_copy(
+                    req_id=req_id_s,
+                    request_chat_id=request_copy[0],
+                    request_message_id=request_copy[1],
+                    text=cancelled_text,
+                )
+                await self.repo.upsert_exchange_request_link(
+                    client_req_id=str(req_id_s),
+                    table_req_id=str(table_req_id or req_id_s),
+                    request_chat_id=request_copy[0],
+                    request_message_id=request_copy[1],
+                    request_text=cancelled_text,
+                    status="cancelled",
+                )
+            except Exception:
+                pass
+
         # уведомление в заявочный чат
         # --- внутри handle_cancel_callback ---
-        if self.request_chat_id and req_index.is_table_done(req_id_s):
+        table_done = req_index.is_table_done(table_req_id) if table_req_id else False
+        if not table_done and meta and table_req_id and str(meta.get("table_req_id") or "") == str(table_req_id):
+            table_done = bool(meta.get("is_table_done"))
+
+        if self.request_chat_id and table_req_id and table_done:
             try:
                 await post_request_message(
                     bot=cq.bot,
@@ -538,9 +634,9 @@ class AbstractExchangeHandler(ABC):
                     text=(
                         f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
                         f"Удалить строки в Google Sheets (Покупка/Продажа) "
-                        f"с номером <b>{html.escape(req_id_s)}</b>?"
+                        f"с номером <b>{html.escape(table_req_id)}</b>?"
                     ),
-                    reply_markup=delete_from_table_keyboard(req_id=req_id_s),
+                    reply_markup=delete_from_table_keyboard(req_id=table_req_id),
                 )
             except Exception:
                 pass
@@ -676,7 +772,8 @@ class AbstractExchangeHandler(ABC):
                 return
 
             # 5) тексты заявок
-            req_id = await self.repo.next_request_id()
+            req_id = random.randint(10_000_000, 99_999_999)
+            table_req_id = await self.repo.next_request_id()
             pretty_recv = format_amount_core(recv_amount, recv_prec)
             pretty_pay  = format_amount_core(pay_amount,  pay_prec)
 
@@ -707,6 +804,7 @@ class AbstractExchangeHandler(ABC):
 
             request_lines = [
                 f"<b>Заявка</b>: <code>{req_id}</code>",
+                f"<b>Номер в таблице</b>: <code>{table_req_id}</code>",
                 f"<b>Клиент</b>: <b>{html.escape(chat_name)}</b>",
                 "-----",
                 f"<b>Получаем</b>: <code>{pretty_recv} {recv_code.lower()}</code>",
@@ -800,7 +898,7 @@ class AbstractExchangeHandler(ABC):
                     client_text,
                     parse_mode="HTML",
                     reply_to_message_id=message.message_id,
-                    reply_markup=_cancel_kb(req_id),
+                    reply_markup=_cancel_kb(req_id, table_req_id),
                 )
             except Exception:
                 sent = None
@@ -813,6 +911,13 @@ class AbstractExchangeHandler(ABC):
                         user_cmd_msg_id=message.message_id,
                         bot_msg_id=sent.message_id,
                         req_id=str(req_id),
+                    )
+                    await self.repo.upsert_exchange_request_link(
+                        client_req_id=str(req_id),
+                        table_req_id=str(table_req_id),
+                        client_chat_id=sent.chat.id,
+                        client_message_id=sent.message_id,
+                        status="active",
                     )
                 except Exception:
                     pass
@@ -830,13 +935,26 @@ class AbstractExchangeHandler(ABC):
                             in_amount=recv_amount,
                             out_amount=pay_amount,
                             client_rate=rate_str,
-                            req_id=req_id,
+                            req_id=table_req_id,
                         ),
                     )
                     req_index.remember_request_chat_copy(
                         req_id=str(req_id),
                         request_chat_id=sent_request.chat.id,
                         request_message_id=sent_request.message_id,
+                        text=request_text,
+                    )
+                    req_index.remember_table_req_id(
+                        req_id=str(req_id),
+                        table_req_id=str(table_req_id),
+                    )
+                    await self.repo.upsert_exchange_request_link(
+                        client_req_id=str(req_id),
+                        table_req_id=str(table_req_id),
+                        request_chat_id=sent_request.chat.id,
+                        request_message_id=sent_request.message_id,
+                        request_text=request_text,
+                        status="active",
                     )
                 except Exception:
                     pass

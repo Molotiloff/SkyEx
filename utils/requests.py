@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional, Iterable, Tuple, Set
 
 from aiogram import Bot, Router, F
-from aiogram.types import InlineKeyboardMarkup, CallbackQuery
+from aiogram.types import InlineKeyboardMarkup, CallbackQuery, Message
 
 from gutils.sheets import (
     get_firm_balance,
@@ -100,7 +100,7 @@ async def post_request_message(
     *,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     disable_notification: bool = False,
-) -> object:
+) -> Message:
     return await bot.send_message(
         chat_id=request_chat_id,
         text=text,

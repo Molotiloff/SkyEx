@@ -94,6 +94,7 @@ def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
             )
             if parsed.req_id is not None:
                 req_index.mark_table_done(str(parsed.req_id))
+                await req_index_repo_mark_table_done(str(parsed.req_id))
 
         except SheetsWriteError as e:
             logging.exception("Sheets write failed: %s", e)
@@ -131,3 +132,12 @@ def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
         )
 
     return router
+
+
+async def req_index_repo_mark_table_done(table_req_id: str) -> None:
+    try:
+        from db_asyncpg.repo import Repo
+        repo = Repo()
+        await repo.mark_exchange_request_table_done(table_req_id=table_req_id, is_table_done=True)
+    except Exception:
+        pass
