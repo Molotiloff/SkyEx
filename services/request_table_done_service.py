@@ -33,6 +33,8 @@ class TableDoneResult:
 
 
 class RequestTableDoneService:
+    _RUB_CODES = {"RUB", "РУБМСК", "РУБСПБ", "РУБПЕР", "РУБТЮМ"}
+
     _DEFAULT_CELL_MAP = {
         "EUR": "Главная!E2",
         "USDT": "Главная!E8",
@@ -84,6 +86,8 @@ class RequestTableDoneService:
 
     @classmethod
     def _map_table_currency(cls, cur: str) -> str:
+        if (cur or "").strip().upper() in cls._RUB_CODES:
+            return "RUB"
         return cls._TABLE_CURRENCY_NAMES.get(cur, cur)
 
     @staticmethod
@@ -107,6 +111,8 @@ class RequestTableDoneService:
         in_amt = payload.in_amt
         out_amt = payload.out_amt
         rate = payload.rate
+        in_cur_table = self._map_table_currency(in_cur)
+        out_cur_table = self._map_table_currency(out_cur)
 
         if in_cur == "USDT" and out_cur not in {"EUR", "USD", "USDW"}:
             append_buy_row(
@@ -122,7 +128,7 @@ class RequestTableDoneService:
 
         elif out_cur == "USDT" and in_cur not in {"EUR", "USD", "USDW"}:
             append_sale_row(
-                in_currency=in_cur,
+                in_currency=in_cur_table,
                 out_currency="USDT",
                 in_amount=in_amt,
                 out_amount=out_amt,
@@ -134,10 +140,10 @@ class RequestTableDoneService:
             )
             sheet_type = "Продажа"
 
-        elif out_cur in {"EUR", "USD", "USDW"} and in_cur == "RUB":
+        elif out_cur in {"EUR", "USD", "USDW"} and in_cur_table == "RUB":
             append_sale_row(
                 in_currency="RUB",
-                out_currency=self._map_table_currency(out_cur),
+                out_currency=out_cur_table,
                 in_amount=in_amt,
                 out_amount=out_amt,
                 rate=rate,
@@ -148,9 +154,9 @@ class RequestTableDoneService:
             )
             sheet_type = "Продажа"
 
-        elif in_cur in {"EUR", "USD", "USDW"} and out_cur == "RUB":
+        elif in_cur in {"EUR", "USD", "USDW"} and out_cur_table == "RUB":
             append_buy_row(
-                currency=self._map_table_currency(in_cur),
+                currency=in_cur_table,
                 amount=in_amt,
                 rate=rate,
                 created_at=created_at,
@@ -164,7 +170,7 @@ class RequestTableDoneService:
             inner_rate = read_main_rate(in_cur, self._DEFAULT_CELL_MAP)
             rub_total = in_amt * inner_rate
             append_buy_row(
-                currency=self._map_table_currency(in_cur),
+                currency=in_cur_table,
                 amount=in_amt,
                 rate=inner_rate,
                 created_at=created_at,
@@ -174,7 +180,7 @@ class RequestTableDoneService:
             )
             final_rate = rub_total / out_amt
             append_sale_row(
-                in_currency=self._map_table_currency(in_cur),
+                in_currency=in_cur_table,
                 out_currency="USDT",
                 in_amount=in_amt,
                 out_amount=out_amt,
@@ -184,14 +190,14 @@ class RequestTableDoneService:
                 sheet_name="Продажа",
                 request_id=req_id,
             )
-            sheet_type = f"Покупка + Продажа ({self._map_table_currency(in_cur)})"
+            sheet_type = f"Покупка + Продажа ({in_cur_table})"
 
         elif in_cur == "USDT" and out_cur in {"EUR", "USD", "USDW"}:
             inner_rate = read_main_rate(out_cur, self._DEFAULT_CELL_MAP)
             rub_total = out_amt * inner_rate
             append_sale_row(
                 in_currency="USDT",
-                out_currency=self._map_table_currency(out_cur),
+                out_currency=out_cur_table,
                 in_amount=in_amt,
                 out_amount=out_amt,
                 rate=inner_rate,
@@ -210,13 +216,13 @@ class RequestTableDoneService:
                 sheet_name="Покупка",
                 request_id=req_id,
             )
-            sheet_type = f"Продажа + Покупка ({self._map_table_currency(out_cur)})"
+            sheet_type = f"Продажа + Покупка ({out_cur_table})"
 
         elif in_cur in {"EUR", "USD", "USDW"} and out_cur in {"EUR", "USD", "USDW"}:
             in_rate = read_main_rate(in_cur, self._DEFAULT_CELL_MAP)
             rub_total = in_amt * in_rate
             append_buy_row(
-                currency=self._map_table_currency(in_cur),
+                currency=in_cur_table,
                 amount=in_amt,
                 rate=in_rate,
                 created_at=created_at,
@@ -227,7 +233,7 @@ class RequestTableDoneService:
             if out_amt <= 0:
                 raise SheetsWriteError("Сумма продажи должна быть > 0.")
             sale_rate = rub_total / out_amt
-            pretty_out = self._map_table_currency(out_cur)
+            pretty_out = out_cur_table
             custom_cell_map = dict(self._DEFAULT_CELL_MAP)
             if pretty_out not in custom_cell_map:
                 custom_cell_map[pretty_out] = self._DEFAULT_CELL_MAP[out_cur]
@@ -245,7 +251,7 @@ class RequestTableDoneService:
             )
             sheet_type = (
                 f"Покупка + Продажа "
-                f"({self._map_table_currency(in_cur)}→{self._map_table_currency(out_cur)})"
+                f"({in_cur_table}→{out_cur_table})"
             )
 
         else:

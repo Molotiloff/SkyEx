@@ -12,6 +12,7 @@ from gutils.requests_sheet import (
     get_service_account_email,
 )
 from services.request_table_done_service import RequestTableDoneService
+from utils.req_index import req_index
 
 # Константы
 STATUS_LINE_DONE = "Статус: Занесена в таблицу ✅"
@@ -91,6 +92,8 @@ def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
                 payload=parsed,
                 message_dt=getattr(msg, "date", None),
             )
+            if parsed.req_id is not None:
+                req_index.mark_table_done(str(parsed.req_id))
 
         except SheetsWriteError as e:
             logging.exception("Sheets write failed: %s", e)

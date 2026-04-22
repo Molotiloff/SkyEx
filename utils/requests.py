@@ -100,8 +100,8 @@ async def post_request_message(
     *,
     reply_markup: Optional[InlineKeyboardMarkup] = None,
     disable_notification: bool = False,
-) -> None:
-    await bot.send_message(
+) -> object:
+    return await bot.send_message(
         chat_id=request_chat_id,
         text=text,
         parse_mode="HTML",
