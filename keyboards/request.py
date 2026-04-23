@@ -58,18 +58,11 @@ def request_keyboard(
     cb_table_done: str = CB_TABLE_DONE,
 ) -> InlineKeyboardMarkup:
     """
-    Кнопка «Занести в таблицу» с параметрами:
-    req:table_done:<REQ_ID>:<IN_CCY>:<OUT_CCY>:<IN_AMT>:<OUT_AMT>:<RATE>
+    Кнопка «Занести в таблицу».
+    В callback оставляем только номер таблицы, а payload хранится в БД.
+    Старый длинный формат продолжает поддерживаться обработчиком для уже созданных кнопок.
     """
-    data = (
-        f"{cb_table_done}:"
-        f"{req_id}:"
-        f"{in_ccy.strip().upper()}:"
-        f"{out_ccy.strip().upper()}:"
-        f"{_enc_num(in_amount)}:"
-        f"{_enc_num(out_amount)}:"
-        f"{_enc_num(client_rate)}"
-    )
+    data = f"{cb_table_done}:{req_id}"
     rows = [[InlineKeyboardButton(text="Занести в таблицу", callback_data=data)]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

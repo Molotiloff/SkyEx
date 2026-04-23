@@ -17,6 +17,11 @@ class ExchangeRequestsRepo:
                 request_chat_id BIGINT,
                 request_message_id BIGINT,
                 request_text TEXT,
+                table_in_cur TEXT,
+                table_out_cur TEXT,
+                table_in_amount NUMERIC(38,8),
+                table_out_amount NUMERIC(38,8),
+                table_rate NUMERIC(38,8),
                 is_table_done BOOLEAN NOT NULL DEFAULT FALSE,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -24,6 +29,11 @@ class ExchangeRequestsRepo:
             )
             """
         )
+        await con.execute("ALTER TABLE exchange_request_links ADD COLUMN IF NOT EXISTS table_in_cur TEXT")
+        await con.execute("ALTER TABLE exchange_request_links ADD COLUMN IF NOT EXISTS table_out_cur TEXT")
+        await con.execute("ALTER TABLE exchange_request_links ADD COLUMN IF NOT EXISTS table_in_amount NUMERIC(38,8)")
+        await con.execute("ALTER TABLE exchange_request_links ADD COLUMN IF NOT EXISTS table_out_amount NUMERIC(38,8)")
+        await con.execute("ALTER TABLE exchange_request_links ADD COLUMN IF NOT EXISTS table_rate NUMERIC(38,8)")
         await con.execute(
             """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_exchange_request_links_table_req_id
@@ -41,6 +51,11 @@ class ExchangeRequestsRepo:
         request_chat_id: int | None = None,
         request_message_id: int | None = None,
         request_text: str | None = None,
+        table_in_cur: str | None = None,
+        table_out_cur: str | None = None,
+        table_in_amount: Any | None = None,
+        table_out_amount: Any | None = None,
+        table_rate: Any | None = None,
         is_table_done: bool | None = None,
         status: str | None = None,
     ) -> None:
@@ -58,14 +73,19 @@ class ExchangeRequestsRepo:
                         request_chat_id,
                         request_message_id,
                         request_text,
+                        table_in_cur,
+                        table_out_cur,
+                        table_in_amount,
+                        table_out_amount,
+                        table_rate,
                         is_table_done,
                         status,
                         updated_at
                     )
                     VALUES (
-                        $1, $2, $3, $4, $5, $6, $7,
-                        COALESCE($8, FALSE),
-                        COALESCE($9, 'active'),
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                        COALESCE($13, FALSE),
+                        COALESCE($14, 'active'),
                         now()
                     )
                     ON CONFLICT (client_req_id) DO UPDATE SET
@@ -75,8 +95,13 @@ class ExchangeRequestsRepo:
                         request_chat_id = COALESCE(EXCLUDED.request_chat_id, exchange_request_links.request_chat_id),
                         request_message_id = COALESCE(EXCLUDED.request_message_id, exchange_request_links.request_message_id),
                         request_text = COALESCE(EXCLUDED.request_text, exchange_request_links.request_text),
-                        is_table_done = COALESCE($8, exchange_request_links.is_table_done),
-                        status = COALESCE($9, exchange_request_links.status),
+                        table_in_cur = COALESCE(EXCLUDED.table_in_cur, exchange_request_links.table_in_cur),
+                        table_out_cur = COALESCE(EXCLUDED.table_out_cur, exchange_request_links.table_out_cur),
+                        table_in_amount = COALESCE(EXCLUDED.table_in_amount, exchange_request_links.table_in_amount),
+                        table_out_amount = COALESCE(EXCLUDED.table_out_amount, exchange_request_links.table_out_amount),
+                        table_rate = COALESCE(EXCLUDED.table_rate, exchange_request_links.table_rate),
+                        is_table_done = COALESCE($13, exchange_request_links.is_table_done),
+                        status = COALESCE($14, exchange_request_links.status),
                         updated_at = now()
                     """,
                     str(client_req_id),
@@ -86,6 +111,11 @@ class ExchangeRequestsRepo:
                     int(request_chat_id) if request_chat_id is not None else None,
                     int(request_message_id) if request_message_id is not None else None,
                     request_text,
+                    table_in_cur,
+                    table_out_cur,
+                    table_in_amount,
+                    table_out_amount,
+                    table_rate,
                     is_table_done,
                     status,
                 )

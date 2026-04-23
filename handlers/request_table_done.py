@@ -6,6 +6,7 @@ from typing import Iterable, Set, Tuple
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+from db_asyncpg.repo import Repo
 from keyboards.request import CB_TABLE_DONE
 from gutils.requests_sheet import (
     SheetsWriteError,
@@ -44,6 +45,22 @@ def _short(text: str, limit: int = 180) -> str:
     return text if len(text) <= limit else (text[: limit - 1] + "…")
 
 
+async def _payload_from_callback_or_db(data: str):
+    parsed = _TABLE_DONE_SERVICE.parse_callback_payload(data)
+    if parsed:
+        return parsed
+
+    table_req_id = _TABLE_DONE_SERVICE.parse_table_req_id(data)
+    if not table_req_id:
+        return None
+
+    repo = Repo()
+    row = await repo.get_exchange_request_link_by_table_req_id(table_req_id=table_req_id)
+    if not row:
+        return None
+    return _TABLE_DONE_SERVICE.payload_from_db_row(row)
+
+
 # === Основной роутер ===
 def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
     allowed = set(int(x) for x in request_chat_ids)
@@ -66,6 +83,12 @@ def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
             await cq.answer("Статус уже проставлен.")
             return
 
+        parsed = await _payload_from_callback_or_db(cq.data or "")
+        if not parsed:
+            logging.error("Invalid table_done callback payload: %r", cq.data)
+            await cq.answer("Не удалось найти параметры заявки в БД. В таблицу не записано.", show_alert=True)
+            return
+
         # моментально снимаем клавиатуру
         try:
             await msg.edit_reply_markup(reply_markup=_processing_kb())
@@ -77,17 +100,6 @@ def get_table_done_router(*, request_chat_ids: Iterable[int]) -> Router:
 
         _PENDING.add(key)
         try:
-            parsed = _TABLE_DONE_SERVICE.parse_callback_payload(cq.data or "")
-            if not parsed:
-                new_text = _append_status_once(msg.text or "", STATUS_LINE_DONE)
-                try:
-                    await msg.edit_text(new_text, parse_mode="HTML")
-                    _MARKED.add(key)
-                except Exception:
-                    pass
-                await cq.answer("Занесена в таблицу ✅ (нет параметров)")
-                return
-
             result = _TABLE_DONE_SERVICE.write_by_payload(
                 payload=parsed,
                 message_dt=getattr(msg, "date", None),

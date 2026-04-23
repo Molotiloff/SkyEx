@@ -85,6 +85,28 @@ class RequestTableDoneService:
         return None
 
     @classmethod
+    def parse_table_req_id(cls, data: str) -> str | None:
+        parts = (data or "").split(":")
+        if len(parts) == 3 and parts[0] == "req" and parts[1] == "table_done" and parts[2].strip():
+            return parts[2].strip()
+        return None
+
+    @classmethod
+    def payload_from_db_row(cls, row: dict) -> TableDonePayload | None:
+        try:
+            req_id = int(str(row["table_req_id"]))
+            return TableDonePayload(
+                req_id=req_id,
+                in_cur=str(row["table_in_cur"]).strip().upper(),
+                out_cur=str(row["table_out_cur"]).strip().upper(),
+                in_amt=cls._to_decimal(str(row["table_in_amount"])),
+                out_amt=cls._to_decimal(str(row["table_out_amount"])),
+                rate=cls._to_decimal(str(row["table_rate"])),
+            )
+        except (KeyError, TypeError, InvalidOperation, ValueError):
+            return None
+
+    @classmethod
     def _map_table_currency(cls, cur: str) -> str:
         if (cur or "").strip().upper() in cls._RUB_CODES:
             return "RUB"

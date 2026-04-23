@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import logging
 import random
 import re
 from abc import ABC
@@ -29,6 +30,7 @@ _CANCEL_REQUEST_PREFIX = "⛔️ <b>Внимание! Заявка отмене�
 
 # «Создал: ...» в старом тексте
 _RE_CREATED_BY = re.compile(r"^\s*Создал:\s*(?:<b>)?(.+?)(?:</b>)?\s*$", re.I | re.M)
+log = logging.getLogger(__name__)
 
 
 def _parse_amt_code(payload: str) -> tuple[Decimal, str] | None:
@@ -387,6 +389,11 @@ class AbstractExchangeHandler(ABC):
                         request_chat_id=request_chat_id,
                         request_message_id=request_message_id,
                         request_text=request_text,
+                        table_in_cur=recv_code,
+                        table_out_cur=pay_code,
+                        table_in_amount=recv_amount,
+                        table_out_amount=pay_amount,
+                        table_rate=rate_str.replace(",", "."),
                     )
                     await post_request_message(
                         message.bot,
@@ -424,6 +431,11 @@ class AbstractExchangeHandler(ABC):
                         request_chat_id=sent_request.chat.id,
                         request_message_id=sent_request.message_id,
                         request_text=request_text,
+                        table_in_cur=recv_code,
+                        table_out_cur=pay_code,
+                        table_in_amount=recv_amount,
+                        table_out_amount=pay_amount,
+                        table_rate=rate_str.replace(",", "."),
                     )
                     await post_request_message(
                         message.bot,
@@ -432,7 +444,7 @@ class AbstractExchangeHandler(ABC):
                         reply_markup=None,
                     )
             except Exception:
-                pass
+                log.exception("Failed to update request chat copy for edited exchange request %s", edit_req_id)
 
         rows = await self.repo.snapshot_wallet(client_id)
         compact = format_wallet_compact(rows, only_nonzero=True)
@@ -917,10 +929,15 @@ class AbstractExchangeHandler(ABC):
                         table_req_id=str(table_req_id),
                         client_chat_id=sent.chat.id,
                         client_message_id=sent.message_id,
+                        table_in_cur=recv_code,
+                        table_out_cur=pay_code,
+                        table_in_amount=recv_amount,
+                        table_out_amount=pay_amount,
+                        table_rate=rate_q,
                         status="active",
                     )
                 except Exception:
-                    pass
+                    log.exception("Failed to persist exchange request client link %s", req_id)
 
             # 8) заявочный чат — кнопка «Занести в таблицу»
             if self.request_chat_id:
@@ -954,10 +971,15 @@ class AbstractExchangeHandler(ABC):
                         request_chat_id=sent_request.chat.id,
                         request_message_id=sent_request.message_id,
                         request_text=request_text,
+                        table_in_cur=recv_code,
+                        table_out_cur=pay_code,
+                        table_in_amount=recv_amount,
+                        table_out_amount=pay_amount,
+                        table_rate=rate_q,
                         status="active",
                     )
                 except Exception:
-                    pass
+                    log.exception("Failed to post or persist exchange request chat copy %s", req_id)
 
             # 9) счета (ненулевые) после операции
             accounts2 = await self.repo.snapshot_wallet(client_id)
