@@ -2,7 +2,6 @@ from .constants import CMD_MAP, FX_CMD_MAP
 from .create_cash_request import CreateCashRequest
 from .edit_cash_request import EditCashRequest
 from .legacy_request_messages import post_request_message
-from .legacy_request_routers import get_issue_router, get_request_router
 from .models import (
     DepWdCardSnapshot,
     FxCardSnapshot,
@@ -23,8 +22,6 @@ __all__ = [
     "FX_CMD_MAP",
     "CreateCashRequest",
     "EditCashRequest",
-    "get_issue_router",
-    "get_request_router",
     "post_request_message",
     "RequestContext",
     "RequestEditSource",

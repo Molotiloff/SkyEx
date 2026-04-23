@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Optional
 
@@ -7,10 +8,13 @@ from aiogram.types import CallbackQuery
 
 from db_asyncpg.repo import Repo
 from keyboards.request import CB_ISSUE_DONE
-from utils.auth import require_manager_or_admin_message
+from services.cash_requests.legacy_request_parsing import parse_kind_amount_code
+from utils.auth import require_manager_or_admin_callback
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.request_text_parser import detect_kind_from_card, parse_amount_code_line
+
+_RE_LINE_AMOUNT = re.compile(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
 
 
 class RequestIssueService:
@@ -31,21 +35,15 @@ class RequestIssueService:
             await cq.answer()
             return
 
-        if not await require_manager_or_admin_message(
+        if not await require_manager_or_admin_callback(
             self.repo,
-            msg,
+            cq,
             admin_chat_ids=self.admin_chat_ids,
             admin_user_ids=self.admin_user_ids,
         ):
-            await cq.answer("Недостаточно прав.", show_alert=True)
             return
 
         text = msg.text or ""
-
-        try:
-            await msg.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
         op_kind: Optional[str] = None
         try:
@@ -58,17 +56,11 @@ class RequestIssueService:
         if not op_kind:
             op_kind = detect_kind_from_card(text)
 
-        if op_kind != "dep":
-            await cq.answer("Кнопка доступна только для заявок на внесение.", show_alert=True)
+        if op_kind not in {"dep", "wd"}:
+            await cq.answer("Кнопка доступна только для заявок на внесение или выдачу.", show_alert=True)
             return
 
-        import re
-        m_amt = re.search(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", text, re.I | re.M)
-        if not m_amt:
-            await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
-            return
-
-        parsed_amt = parse_amount_code_line(m_amt.group(1))
+        parsed_amt = self._parse_amount_code(text, op_kind=op_kind)
         if not parsed_amt:
             await cq.answer("Не удалось распознать сумму/валюту.", show_alert=True)
             return
@@ -92,18 +84,33 @@ class RequestIssueService:
 
         idem = f"cash:{chat_id}:{msg.message_id}"
         try:
-            await self.repo.deposit(
-                client_id=client_id,
-                currency_code=code,
-                amount=amount,
-                comment="cash issue",
-                source="cash_request",
-                idempotency_key=idem,
-            )
+            if op_kind == "dep":
+                await self.repo.deposit(
+                    client_id=client_id,
+                    currency_code=code,
+                    amount=amount,
+                    comment="cash issue",
+                    source="cash_request",
+                    idempotency_key=idem,
+                )
+            else:
+                await self.repo.withdraw(
+                    client_id=client_id,
+                    currency_code=code,
+                    amount=amount,
+                    comment="cash issue",
+                    source="cash_request",
+                    idempotency_key=idem,
+                )
         except Exception as e:
             await cq.message.answer(f"Не удалось провести операцию по кошельку: {e}")
             await cq.answer()
             return
+
+        try:
+            await msg.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
 
         accounts2 = await self.repo.snapshot_wallet(client_id)
         acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)
@@ -116,3 +123,20 @@ class RequestIssueService:
             parse_mode="HTML",
         )
         await cq.answer("Отмечено как выдано")
+
+    @staticmethod
+    def _parse_amount_code(text: str, *, op_kind: str) -> tuple[Decimal, str] | None:
+        m_amt = _RE_LINE_AMOUNT.search(text or "")
+        if m_amt:
+            return parse_amount_code_line(m_amt.group(1))
+
+        legacy = parse_kind_amount_code(text or "")
+        if not legacy:
+            return None
+
+        kind_ru, amount, code = legacy
+        if op_kind == "dep" and kind_ru != "Депозит":
+            return None
+        if op_kind == "wd" and kind_ru != "Выдача":
+            return None
+        return amount, code

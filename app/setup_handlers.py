@@ -35,7 +35,6 @@ from services.rate_order import (
     RapiraWsService,
     RateOrderService,
 )
-from services.cash_requests import get_issue_router
 from utils.offices import OFFICE_CARDS
 
 
@@ -226,13 +225,5 @@ def setup_handlers(
     if request_chat_id:
         dp.include_router(get_table_done_router(request_chat_ids=[request_chat_id]))
         dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
-
-    dp.include_router(
-        get_issue_router(
-            repo=repo,
-            admin_chat_ids=[config.admin_chat_id] if config.admin_chat_id else [],
-            admin_user_ids=config.admin_ids,
-        )
-    )
 
     return services
