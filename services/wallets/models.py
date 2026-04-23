@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 
 @dataclass(slots=True, frozen=True)
@@ -14,3 +15,14 @@ class WalletCommandResult:
 class CityTransferResultView:
     ok: bool
     message_text: str
+
+
+@dataclass(slots=True, frozen=True)
+class ParsedCurrencyChange:
+    code: str
+    expr: str
+    amount: Decimal
+    tail: str
+    is_city_cash: bool
+    client_name_for_transfer: str
+    extra_comment: str

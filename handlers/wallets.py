@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from typing import Iterable
 
@@ -9,17 +8,15 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.repo import Repo
-from models.wallet import WalletError
-from services.wallets import WalletService
+from services.wallets import WalletInteractionService, WalletService
 from utils.auth import (
-    require_manager_or_admin_callback,
+    manager_or_admin_callback_required,
+    manager_or_admin_message_required,
     require_manager_or_admin_message,
 )
-from utils.info import get_chat_name
 from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
-log = logging.getLogger("wallets")
 _RE_PUBLIC_WALLET_CMD = r"(?iu)^/кош(?:@\w+)?(?:\s|$)"
 
 
@@ -42,81 +39,27 @@ class WalletsHandler:
             repo=repo,
             city_cash_chat_ids=city_cash_chat_ids,
         )
+        self.interaction_service = WalletInteractionService(wallet_service=self.wallet_service)
         self.router = Router()
         self._register()
 
+    @manager_or_admin_message_required
     async def _cmd_wallet(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
-        chat_id = message.chat.id
-        chat_name = get_chat_name(message)
-        text = await self.wallet_service.build_wallet_text(chat_id=chat_id, chat_name=chat_name)
-
-        from utils.statements import statements_kb
+        result = await self.interaction_service.build_wallet_response(message)
         await message.answer(
-            text,
+            result.message_text,
             parse_mode="HTML",
-            reply_markup=statements_kb(),
+            reply_markup=result.reply_markup,
         )
 
+    @manager_or_admin_message_required
     async def _cmd_rmcur(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
-        parts = (message.text or "").split()
-        if len(parts) < 2:
-            await message.answer("Использование: /удали КОД\nПримеры: /удали USD, /удали дол, /удали юсдт")
-            return
-
-        result = await self.wallet_service.build_remove_currency_confirmation(
-            chat_id=message.chat.id,
-            chat_name=get_chat_name(message),
-            raw_code=parts[1],
-        )
+        result = await self.interaction_service.build_remove_currency_response(message)
         await message.answer(result.message_text, reply_markup=result.reply_markup)
 
+    @manager_or_admin_message_required
     async def _cmd_addcur(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
-        parts = (message.text or "").split()
-        if len(parts) < 2:
-            await message.answer(
-                "Использование: /добавь КОД [точность]\n"
-                "Примеры: /добавь USD 2, /добавь дол 2, /добавь юсдт 0, /добавь доллбел 2"
-            )
-            return
-
-        precision = 2
-        if len(parts) >= 3:
-            try:
-                precision = int(parts[2])
-            except ValueError:
-                await message.answer("Ошибка: точность должна быть целым числом 0..8")
-                return
-
-        result = await self.wallet_service.add_currency(
-            chat_id=message.chat.id,
-            chat_name=get_chat_name(message),
-            raw_code=parts[1],
-            precision=precision,
-        )
+        result = await self.interaction_service.build_add_currency_response(message)
         await message.answer(result.message_text)
 
     async def _on_currency_change(self, message: Message) -> None:
@@ -146,40 +89,20 @@ class WalletsHandler:
             return
 
         async with chat_locks.for_chat(message.chat.id):
-            try:
-                parsed = await self.wallet_service.parse_currency_change(message)
-                if not parsed:
-                    return
+            result = await self.interaction_service.build_currency_change_response(message)
+            if not result:
+                return
 
-                result = await self.wallet_service.apply_currency_change(
-                    message=message,
-                    parsed=parsed,
-                )
-                await message.answer(
-                    result.message_text,
-                    reply_markup=result.reply_markup,
-                )
-            except ValueError as e:
-                await message.answer(str(e))
-            except WalletError as we:
-                log.exception("WalletError in _on_currency_change chat_id=%s msg_id=%s", message.chat.id, message.message_id)
-                await message.answer(f"Ошибка: {we}")
-            except Exception as e:
-                log.exception("Exception in _on_currency_change chat_id=%s msg_id=%s", message.chat.id, message.message_id)
-                await message.answer(f"Не удалось обработать операцию: {e}")
+            await message.answer(
+                result.message_text,
+                reply_markup=result.reply_markup,
+            )
 
+    @manager_or_admin_callback_required
     async def _cb_rmcur(self, cq: CallbackQuery) -> None:
-        if not await require_manager_or_admin_callback(
-            self.repo,
-            cq,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         try:
-            _, code_raw, answer = (cq.data or "").split(":")
-        except Exception:
+            code_raw, answer = self.interaction_service.parse_remove_currency_callback(cq.data)
+        except ValueError:
             await cq.answer("Некорректные данные", show_alert=True)
             return
 
@@ -187,33 +110,22 @@ class WalletsHandler:
             await cq.answer("Нет чата", show_alert=True)
             return
 
-        if answer == "no":
-            await cq.message.edit_text(f"Удаление {self.wallet_service.normalize_code_alias(code_raw)} отменено.")
-            await cq.answer("Отмена")
-            return
-
-        result = await self.wallet_service.remove_currency_confirmed(
-            chat_id=cq.message.chat.id,
-            chat_name=get_chat_name(cq.message),
+        edit_text, answer_text, show_alert = await self.interaction_service.build_remove_currency_callback_response(
+            message=cq.message,
             code_raw=code_raw,
+            answer=answer,
         )
-        await cq.message.edit_text(result.message_text)
-        await cq.answer("Удалено" if result.ok else "Отклонено", show_alert=not result.ok)
+        await cq.message.edit_text(edit_text)
+        await cq.answer(answer_text, show_alert=show_alert)
 
+    @manager_or_admin_callback_required
     async def _cb_undo(self, cq: CallbackQuery) -> None:
-        if not await require_manager_or_admin_callback(
-            self.repo,
-            cq,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         try:
-            kind, code_raw, sign, amt_str = (cq.data or "").split(":")
-            if kind != "undo":
+            parsed_undo = self.interaction_service.parse_undo_callback(cq.data)
+            if not parsed_undo:
                 return
-        except Exception:
+            code_raw, sign, amt_str = parsed_undo
+        except ValueError:
             await cq.answer("Некорректные данные", show_alert=True)
             return
 
@@ -222,10 +134,8 @@ class WalletsHandler:
             return
 
         async with chat_locks.for_chat(cq.message.chat.id):
-            result = await self.wallet_service.undo_operation(
-                chat_id=cq.message.chat.id,
-                chat_name=get_chat_name(cq.message),
-                message_id=cq.message.message_id,
+            result = await self.interaction_service.build_undo_response(
+                message=cq.message,
                 code_raw=code_raw,
                 sign=sign,
                 amt_str=amt_str,
