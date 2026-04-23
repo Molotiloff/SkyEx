@@ -1,4 +1,6 @@
 from .constants import CMD_MAP, FX_CMD_MAP
+from .create_cash_request import CreateCashRequest
+from .edit_cash_request import EditCashRequest
 from .models import (
     DepWdCardSnapshot,
     FxCardSnapshot,
@@ -17,6 +19,8 @@ from .request_time_service import RequestTimeService
 __all__ = [
     "CMD_MAP",
     "FX_CMD_MAP",
+    "CreateCashRequest",
+    "EditCashRequest",
     "RequestContext",
     "RequestEditSource",
     "DepWdCardSnapshot",
