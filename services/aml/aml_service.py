@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from services.aml.getblock_client import GetBlockAMLClient
 from services.aml.getblock_parser import (
     build_report_message,
@@ -10,6 +12,9 @@ from services.aml.getblock_settings import GetBlockSettings
 
 
 class AMLService:
+    _REPORT_PARSE_ATTEMPTS = 20
+    _REPORT_PARSE_DELAY_SECONDS = 3.0
+
     def __init__(self, *, settings: GetBlockSettings):
         self.settings = settings
 
@@ -45,13 +50,31 @@ class AMLService:
             currency_code=self.settings.currency_code,
         )
 
-        preview_html = client.get_report_preview_html(amlcheckup=amlcheckup)
-        report_data = parse_report_preview(
-            preview_html,
-            amlcheckup,
-            base_url=client.BASE,
-            lang=self.settings.lang,
-        )
+        report_data = None
+        preview_link = f"{client.BASE}/{self.settings.lang}/report-preview/{amlcheckup}"
+        last_parse_error: Exception | None = None
+        for attempt in range(1, self._REPORT_PARSE_ATTEMPTS + 1):
+            preview_html = client.get_report_preview_html(amlcheckup=amlcheckup, max_attempts=1)
+            try:
+                report_data = parse_report_preview(
+                    preview_html,
+                    amlcheckup,
+                    base_url=client.BASE,
+                    lang=self.settings.lang,
+                )
+                break
+            except ValueError as e:
+                last_parse_error = e
+                if attempt == self._REPORT_PARSE_ATTEMPTS:
+                    break
+                time.sleep(self._REPORT_PARSE_DELAY_SECONDS)
+
+        if report_data is None:
+            raise RuntimeError(
+                f"{last_parse_error}. Preview: {preview_link}. "
+                f"Отчет не стал готовым за {self._REPORT_PARSE_ATTEMPTS * self._REPORT_PARSE_DELAY_SECONDS:.0f} сек."
+            )
+
         message_text = build_report_message(report_data)
 
         return {

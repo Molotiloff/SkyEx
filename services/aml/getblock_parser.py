@@ -80,7 +80,7 @@ def extract_amlcheckup_from_redirect_header(headers: dict[str, Any]) -> str | No
 
 
 def _extract_label_value(text: str, label: str) -> str | None:
-    pattern = rf'{re.escape(label)}\s*:\s*<span>(.*?)</span>'
+    pattern = rf'{re.escape(label)}\s*:\s*<span\b[^>]*>(.*?)</span>'
     m = re.search(pattern, text, re.I | re.S)
     if not m:
         return None
@@ -90,30 +90,128 @@ def _extract_label_value(text: str, label: str) -> str | None:
     return value or None
 
 
-def parse_report_preview(preview_html: str, amlcheckup: str, *, base_url: str, lang: str) -> dict[str, Any]:
-    soup = BeautifulSoup(preview_html, "html.parser")
+def _iter_report_info_paragraphs(soup: BeautifulSoup) -> list[Any]:
+    items = soup.select(".report-info .details-info-item p, #report-info .details-info-item p")
+    if items:
+        return items
+    return soup.select("p")
 
-    info_block = soup.select_one("#report-info")
-    text = str(info_block) if info_block else preview_html
 
-    report_date = _extract_label_value(text, "Report date")
-    aml_provider = _extract_label_value(text, "AML Provider")
-    blockchain = _extract_label_value(text, "Blockchain")
-    token = _extract_label_value(text, "Token")
-    type_value = _extract_label_value(text, "Type")
-    hash_value = _extract_label_value(text, "Hash")
-    counterparty = _extract_label_value(text, "Counterparty")
+def _extract_label_value_soup(soup: BeautifulSoup, label: str) -> str | None:
+    label_norm = label.strip().lower()
 
-    risk_percent = ""
-    risk_label = ""
+    for item in _iter_report_info_paragraphs(soup):
+        full_text = re.sub(r"\s+", " ", item.get_text(" ", strip=True)).strip()
+        if not full_text.lower().startswith(f"{label_norm}:"):
+            continue
+
+        span = item.find("span")
+        value = span.get_text(" ", strip=True) if span else full_text.split(":", 1)[-1]
+        value = html.unescape(value).strip()
+        return value or None
+
+    return None
+
+
+def _extract_report_value(soup: BeautifulSoup, text: str, label: str) -> str | None:
+    return _extract_label_value_soup(soup, label) or _extract_label_value(text, label)
+
+
+def _extract_percent(text: str) -> str:
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*%", text)
+    if not m:
+        return ""
+    return f"{m.group(1).replace(',', '.')}%"
+
+
+def _label_from_risk_text(text: str) -> str:
+    text_lower = text.lower()
+    if "critical" in text_lower:
+        return "Critical risk level"
+    if "high" in text_lower:
+        return "High risk level"
+    if "medium" in text_lower or "moderate" in text_lower:
+        return "Medium risk level"
+    if "low" in text_lower:
+        return "Low risk level"
+    return ""
+
+
+def _label_from_percent(percent: str) -> str:
+    m = re.search(r"(\d+(?:\.\d+)?)", percent)
+    if not m:
+        return ""
+
+    value = float(m.group(1))
+    if value >= 70:
+        return "High risk level"
+    if value >= 31:
+        return "Medium risk level"
+    return "Low risk level"
+
+
+def _extract_risk(soup: BeautifulSoup, text: str) -> tuple[str, str]:
+    risk_el = soup.select_one(".report-info .risk-level, #report-info .risk-level, .risk-level")
+    if not risk_el:
+        for item in _iter_report_info_paragraphs(soup):
+            item_text = item.get_text(" ", strip=True).lower()
+            if item_text.startswith("risk level:"):
+                risk_el = item
+                break
+
+    if risk_el:
+        spans = risk_el.find_all("span")
+        span_texts = [html.unescape(span.get_text(" ", strip=True)).strip() for span in spans]
+        full_text = html.unescape(risk_el.get_text(" ", strip=True)).strip()
+
+        risk_percent = ""
+        risk_label = ""
+        for span_text in span_texts:
+            risk_percent = _extract_percent(span_text)
+            if risk_percent:
+                break
+        if not risk_percent:
+            risk_percent = _extract_percent(full_text)
+
+        for span_text in span_texts:
+            if not _extract_percent(span_text):
+                risk_label = _label_from_risk_text(span_text)
+                if risk_label:
+                    break
+        if not risk_label:
+            risk_label = _label_from_risk_text(full_text) or _label_from_percent(risk_percent)
+
+        return risk_percent, risk_label
+
     risk_match = re.search(
-        r'Risk level:\s*<span>\s*([^<]+?)\s*</span>\s*\((.*?)\)',
+        r'Risk level:\s*<span[^>]*>\s*([^<]+?)\s*</span>\s*\((.*?)\)',
         text,
         re.I | re.S,
     )
-    if risk_match:
-        risk_percent = html.unescape(risk_match.group(1)).strip()
-        risk_label = re.sub(r"<.*?>", "", risk_match.group(2), flags=re.S).strip()
+    if not risk_match:
+        return "", ""
+
+    risk_percent = _extract_percent(html.unescape(risk_match.group(1)))
+    risk_label = re.sub(r"<.*?>", "", risk_match.group(2), flags=re.S).strip()
+    risk_label = _label_from_risk_text(html.unescape(risk_label)) or _label_from_percent(risk_percent)
+    return risk_percent, risk_label
+
+
+def parse_report_preview(preview_html: str, amlcheckup: str, *, base_url: str, lang: str) -> dict[str, Any]:
+    soup = BeautifulSoup(preview_html, "html.parser")
+
+    info_block = soup.select_one("#report-info, .report-info")
+    text = str(info_block) if info_block else preview_html
+
+    report_date = _extract_report_value(soup, text, "Report date")
+    aml_provider = _extract_report_value(soup, text, "AML Provider")
+    blockchain = _extract_report_value(soup, text, "Blockchain")
+    token = _extract_report_value(soup, text, "Token")
+    type_value = _extract_report_value(soup, text, "Type")
+    hash_value = _extract_report_value(soup, text, "Hash")
+    counterparty = _extract_report_value(soup, text, "Counterparty")
+
+    risk_percent, risk_label = _extract_risk(soup, text)
 
     formatted_date = report_date or ""
     if report_date:
@@ -173,6 +271,9 @@ def parse_report_preview(preview_html: str, amlcheckup: str, *, base_url: str, l
     dangerous_sources = parse_source_group("Dangerous sources")
 
     preview_link = f"{base_url}/{lang}/report-preview/{amlcheckup}"
+
+    if not hash_value or not risk_percent:
+        raise ValueError("Не удалось распарсить отчет GetBlock: в HTML не найдены Hash или Risk level")
 
     return {
         "asset_name": asset_name,
