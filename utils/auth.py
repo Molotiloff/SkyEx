@@ -5,6 +5,16 @@ from aiogram.types import Message, CallbackQuery
 from db_asyncpg.repo import Repo
 
 
+def _is_reply_to_public_wallet_message(message: Message) -> bool:
+    reply = getattr(message, "reply_to_message", None)
+    if not reply or not message.bot or not reply.from_user:
+        return False
+    if reply.from_user.id != message.bot.id:
+        return False
+    text = reply.text or reply.caption or ""
+    return text.strip().startswith("USDT TRC-20 кошелёк")
+
+
 async def require_manager_or_admin_message(
         repo: Repo,
         message: Message,
@@ -33,6 +43,9 @@ async def require_manager_or_admin_message(
 
     if await repo.is_manager(uid):
         return True
+
+    if _is_reply_to_public_wallet_message(message):
+        return False
 
     await message.answer("⛔ Доступ только для менеджеров или админов.")
     return False

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Iterable
 
 from aiogram import F, Router
@@ -19,6 +20,7 @@ from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
 log = logging.getLogger("wallets")
+_RE_PUBLIC_WALLET_CMD = r"(?iu)^/кош(?:@\w+)?(?:\s|$)"
 
 
 class WalletsHandler:
@@ -122,6 +124,17 @@ class WalletsHandler:
             return
 
         if message.chat and message.chat.id in self.ignore_chat_ids:
+            return
+
+        text = message.text or message.caption or ""
+        reply = getattr(message, "reply_to_message", None)
+        if (
+            reply
+            and message.bot
+            and reply.from_user
+            and reply.from_user.id == message.bot.id
+            and re.match(_RE_PUBLIC_WALLET_CMD, text.strip())
+        ):
             return
 
         if not await require_manager_or_admin_message(

@@ -98,6 +98,10 @@ class BroadcastAllHandler:
         return "для всех клиентов"
 
     async def _cmd_all(self, message: Message) -> None:
+        if message.chat.id not in self.admin_chat_ids:
+            await message.answer("Команда /всем доступна только в админском чате.")
+            return
+
         if not await require_manager_or_admin_message(
             self.repo,
             message,
@@ -126,20 +130,20 @@ class BroadcastAllHandler:
         }
 
     async def _handle_broadcast_reply(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         reply_msg = message.reply_to_message
         if not reply_msg:
             return
 
         pending_ids = self._pending_prompt_messages.get(message.chat.id, set())
         if reply_msg.message_id not in pending_ids:
+            return
+
+        if not await require_manager_or_admin_message(
+            self.repo,
+            message,
+            admin_chat_ids=self.admin_chat_ids,
+            admin_user_ids=self.admin_user_ids,
+        ):
             return
 
         if message.media_group_id:
