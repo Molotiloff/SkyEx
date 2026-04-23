@@ -9,7 +9,7 @@ from db_asyncpg.repo import Repo
 from services.cash_requests.models import ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
-from utils.auth import require_manager_or_admin_message
+from utils.auth import manager_or_admin_message_required
 from utils.request_text_parser import (
     build_schedule_line_from_plain,
     detect_kind_from_card,
@@ -53,15 +53,8 @@ class RequestTimeService:
             return reply.caption or ""
         return reply.text or ""
 
+    @manager_or_admin_message_required
     async def handle(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         if not message.chat or not self.router_service.is_request_chat(message.chat.id):
             return
 

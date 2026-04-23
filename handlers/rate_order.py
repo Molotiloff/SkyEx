@@ -10,7 +10,7 @@ from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
 from services.rate_order.rate_order_service import RateOrderService
-from utils.auth import require_manager_or_admin_message
+from utils.auth import manager_or_admin_message_required
 from utils.info import get_chat_name
 
 _RE_ORDER = re.compile(r"^/ордер(?:@\w+)?\s+([0-9]+(?:[.,][0-9]+)?)\s*$", re.IGNORECASE)
@@ -35,15 +35,8 @@ class RateOrderHandler:
         self.router = Router()
         self._register()
 
+    @manager_or_admin_message_required
     async def _cmd_order(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-                self.repo,
-                message,
-                admin_chat_ids=self.admin_chat_ids,
-                admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         m = _RE_ORDER.match((message.text or "").strip())
         if not m:
             await message.answer("Формат: /ордер 81.5")
@@ -72,15 +65,8 @@ class RateOrderHandler:
             parse_mode="HTML",
         )
 
+    @manager_or_admin_message_required
     async def _cmd_rate(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-                self.repo,
-                message,
-                admin_chat_ids=self.admin_chat_ids,
-                admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         if message.chat.id != self.orders_chat_id:
             await message.answer("Команда /курс работает только в чате ордеров.")
             return

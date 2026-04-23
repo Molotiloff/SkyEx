@@ -10,7 +10,7 @@ from aiogram.types import Message
 from db_asyncpg.repo import Repo
 from services.aml import AMLQueueService, AMLQueueTask
 from utils.aml_wallets import is_probable_tron_wallet, normalize_wallet
-from utils.auth import require_manager_or_admin_message
+from utils.auth import manager_or_admin_message_required
 
 _RE_AML = re.compile(r"^/амл(?:@\w+)?\s+(\S+)\s*$", re.IGNORECASE)
 
@@ -31,15 +31,8 @@ class AMLHandler:
         self.router = Router()
         self._register()
 
+    @manager_or_admin_message_required
     async def _cmd_aml(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         m = _RE_AML.match((message.text or "").strip())
         if not m:
             await message.answer("Формат: /амл <адрес>")

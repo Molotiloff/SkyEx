@@ -1,8 +1,19 @@
 # utils/auth.py
 from __future__ import annotations
-from typing import Iterable
+from functools import wraps
+from typing import Awaitable, Callable, Concatenate, Iterable, ParamSpec, Protocol, TypeVar
+
 from aiogram.types import Message, CallbackQuery
 from db_asyncpg.repo import Repo
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+class _ManagerAuthContext(Protocol):
+    repo: Repo
+    admin_chat_ids: Iterable[int]
+    admin_user_ids: Iterable[int]
 
 
 def _is_reply_to_public_wallet_message(message: Message) -> bool:
@@ -78,3 +89,49 @@ async def require_manager_or_admin_callback(
 
     await cq.answer("⛔ Доступ только для менеджеров или админов.", show_alert=True)
     return False
+
+
+def manager_or_admin_message_required(
+        func: Callable[Concatenate[_ManagerAuthContext, Message, P], Awaitable[R]],
+) -> Callable[Concatenate[_ManagerAuthContext, Message, P], Awaitable[R | None]]:
+    @wraps(func)
+    async def wrapper(
+            self: _ManagerAuthContext,
+            message: Message,
+            *args: P.args,
+            **kwargs: P.kwargs,
+    ) -> R | None:
+        if not await require_manager_or_admin_message(
+                self.repo,
+                message,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
+        ):
+            return None
+
+        return await func(self, message, *args, **kwargs)
+
+    return wrapper
+
+
+def manager_or_admin_callback_required(
+        func: Callable[Concatenate[_ManagerAuthContext, CallbackQuery, P], Awaitable[R]],
+) -> Callable[Concatenate[_ManagerAuthContext, CallbackQuery, P], Awaitable[R | None]]:
+    @wraps(func)
+    async def wrapper(
+            self: _ManagerAuthContext,
+            cq: CallbackQuery,
+            *args: P.args,
+            **kwargs: P.kwargs,
+    ) -> R | None:
+        if not await require_manager_or_admin_callback(
+                self.repo,
+                cq,
+                admin_chat_ids=self.admin_chat_ids,
+                admin_user_ids=self.admin_user_ids,
+        ):
+            return None
+
+        return await func(self, cq, *args, **kwargs)
+
+    return wrapper

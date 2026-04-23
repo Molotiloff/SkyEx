@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
 from services.rate_order import OrderbookService
-from utils.auth import require_manager_or_admin_message
+from utils.auth import manager_or_admin_message_required
 
 
 class GrinexBookHandler:
@@ -31,41 +31,20 @@ class GrinexBookHandler:
     def _is_admin_chat(self, chat_id: int) -> bool:
         return int(chat_id) in self.admin_chat_ids
 
+    @manager_or_admin_message_required
     async def _cmd_gar(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         text = self.orderbook_service.build_asks_depth_text(
             min_total_volume=Decimal("500000"),
         )
         await message.answer(text)
 
+    @manager_or_admin_message_required
     async def _cmd_gar_minus(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         text = self.orderbook_service.build_first_bid_text()
         await message.answer(text)
 
+    @manager_or_admin_message_required
     async def _cmd_gar_live(self, message: Message) -> None:
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         if not self._is_admin_chat(message.chat.id):
             await message.answer("Команда /гарред доступна только в админском чате.")
             return

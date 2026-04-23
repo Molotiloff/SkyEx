@@ -239,17 +239,8 @@ class CashRequestService:
             "• тип и валюты менять нельзя."
         )
 
+    @manager_or_admin_message_required
     async def handle(self, message: Message) -> None:
-        from utils.auth import require_manager_or_admin_message
-
-        if not await require_manager_or_admin_message(
-            self.repo,
-            message,
-            admin_chat_ids=self.admin_chat_ids,
-            admin_user_ids=self.admin_user_ids,
-        ):
-            return
-
         parsed: ParsedRequest | None = parse_fx(
             message.text or "",
             fx_cmd_map=self.fx_cmd_map,
