@@ -12,7 +12,7 @@ from services.exchange.use_case_base import _ExchangeUseCaseBase
 from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
 from utils.req_index import req_index
-from utils.requests import post_request_message
+from services.cash_requests import post_request_message
 
 log = logging.getLogger(__name__)
 

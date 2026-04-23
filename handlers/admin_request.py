@@ -15,7 +15,7 @@ from db_asyncpg.repo import Repo
 from utils.calc import evaluate, CalcError
 from utils.formatting import format_amount_core
 from utils.info import _fmt_rate
-from utils.requests import post_request_message
+from services.cash_requests import post_request_message
 
 
 class AdminRequestHandler:
