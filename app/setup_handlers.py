@@ -39,6 +39,7 @@ from handlers import (
     StartHandler,
     UsdtWalletHandler,
     WalletsHandler,
+    XEHandler,
     debug_router,
     get_table_delete_router,
     get_table_done_router,
@@ -66,6 +67,7 @@ from services.rate_order import (
     RapiraWsService,
     RateOrderService,
 )
+from services.xe_api import ConverterAPIService
 from utils.offices import OFFICE_CARDS
 
 
@@ -124,6 +126,14 @@ def setup_handlers(
 
     start_handler = StartHandler(ClientBootstrapService(client_wallet_repo))
     calc_handler = CalcHandler()
+    xe_handler = None
+    if config.converter_api_base_url and config.converter_api_token:
+        xe_handler = XEHandler(
+            ConverterAPIService(
+                base_url=config.converter_api_base_url,
+                api_token=config.converter_api_token,
+            )
+        )
 
     office_handler = OfficeCardsHandler(OFFICE_CARDS)
     dp.include_router(office_handler.router)
@@ -274,6 +284,8 @@ def setup_handlers(
 
     dp.include_router(start_handler.router)
     dp.include_router(calc_handler.router)
+    if xe_handler:
+        dp.include_router(xe_handler.router)
     dp.include_router(nonzero_handler.router)
     dp.include_router(wallets_handler.router)
 

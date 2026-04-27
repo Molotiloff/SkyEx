@@ -18,6 +18,7 @@ from .request_table_done import get_table_done_router
 from .start import StartHandler
 from .usdt_wallet import UsdtWalletHandler
 from .wallets import WalletsHandler
+from .xe import XEHandler
 
 __all__ = [
     "AcceptShortHandler",
@@ -38,6 +39,7 @@ __all__ = [
     "StartHandler",
     "UsdtWalletHandler",
     "WalletsHandler",
+    "XEHandler",
     "debug_router",
     "get_table_delete_router",
     "get_table_done_router",

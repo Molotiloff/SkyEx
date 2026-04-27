@@ -57,6 +57,8 @@ def _parse_city_chat_map(s: str | None, *, env_name: str) -> dict[str, int]:
 class Config:
     bot_token: str
     database_url: str
+    converter_api_base_url: str | None
+    converter_api_token: str | None
 
     admin_chat_id: int
     admin_ids: list[int]
@@ -97,6 +99,9 @@ class Config:
         db_url = os.getenv("DATABASE_URL", "").strip()
         if not db_url:
             raise RuntimeError("Не найден DATABASE_URL в окружении")
+
+        converter_api_base_url = (os.getenv("CONVERTER_API_BASE_URL", "") or "").strip() or None
+        converter_api_token = (os.getenv("CONVERTER_API_TOKEN", "") or "").strip() or None
 
         admin_chat_id = int(os.getenv("ADMIN_CHAT_ID", "0"))
         admin_ids = _parse_int_list(os.getenv("ADMIN_IDS"))
@@ -142,6 +147,8 @@ class Config:
         return cls(
             bot_token=token,
             database_url=db_url,
+            converter_api_base_url=converter_api_base_url,
+            converter_api_token=converter_api_token,
             admin_chat_id=admin_chat_id,
             admin_ids=admin_ids,
             request_chat_id=request_chat_id,
