@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from aiogram.types import CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientTransactionRepositoryPort
 from utils.info import get_chat_name
 
 
@@ -104,7 +104,7 @@ def _build_statement_xlsx(rows: list[dict], chat_name: str, period_label: str) -
     return output.read()
 
 
-async def handle_stmt_callback(cq: CallbackQuery, repo: Repo) -> None:
+async def handle_stmt_callback(cq: CallbackQuery, repo: ClientTransactionRepositoryPort) -> None:
     """
     Универсальный обработчик callback'ов выписок:
       - data = "stmt:month" → текущий месяц

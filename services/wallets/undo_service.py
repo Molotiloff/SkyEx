@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientWalletTransactionRepositoryPort
 from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import WalletCommandResult
 from services.wallets.text_builder import WalletTextBuilder
@@ -13,7 +13,7 @@ class WalletUndoService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ClientWalletTransactionRepositoryPort,
         parser: WalletCommandParser | None = None,
         text_builder: WalletTextBuilder | None = None,
     ) -> None:

@@ -10,10 +10,9 @@ from gutils.requests_sheet import (
     get_service_account_email,
     read_main_rate,
 )
-from services.request_table.sheets_trade_gateway import SheetsTradeGateway
 
 
-class GutilsSheetsTradeGateway(SheetsTradeGateway):
+class GutilsSheetsTradeGateway:
     def get_service_account_email(self) -> str:
         return get_service_account_email()
 

@@ -4,14 +4,14 @@ from functools import wraps
 from typing import Awaitable, Callable, Concatenate, Iterable, ParamSpec, Protocol, TypeVar
 
 from aiogram.types import Message, CallbackQuery
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ManagerRepositoryPort
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
 class _ManagerAuthContext(Protocol):
-    repo: Repo
+    repo: ManagerRepositoryPort
     admin_chat_ids: Iterable[int]
     admin_user_ids: Iterable[int]
 
@@ -27,7 +27,7 @@ def _is_reply_to_public_wallet_message(message: Message) -> bool:
 
 
 async def require_manager_or_admin_message(
-        repo: Repo,
+        repo: ManagerRepositoryPort,
         message: Message,
         *,
         admin_chat_ids: Iterable[int],
@@ -63,7 +63,7 @@ async def require_manager_or_admin_message(
 
 
 async def require_manager_or_admin_callback(
-        repo: Repo,
+        repo: ManagerRepositoryPort,
         cq: CallbackQuery,
         *,
         admin_chat_ids: Iterable[int],

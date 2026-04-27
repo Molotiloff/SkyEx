@@ -3,13 +3,11 @@ from __future__ import annotations
 import re
 import time
 import urllib.parse
-from pathlib import Path
 from typing import Any
 
 import requests
 
 from services.aml.getblock_parser import (
-    extract_amlcheckup,
     extract_amlcheckup_from_redirect_header,
     extract_csrf_from_html,
     find_hidden_csrf_field,

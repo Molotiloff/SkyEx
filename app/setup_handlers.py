@@ -1,10 +1,27 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot, Dispatcher
 
 from config import Config
+from db_asyncpg.ports import (
+    ClientRepositoryPort,
+    ClientWalletRepositoryPort,
+    ClientWalletScheduleRepositoryPort,
+    ClientWalletTransactionRepositoryPort,
+    ExchangeRequestRepositoryPort,
+    ExchangeWorkflowRepositoryPort,
+    LiveMessageRepositoryPort,
+    ManagedClientWalletScheduleRepositoryPort,
+    ManagedClientWalletTransactionRepositoryPort,
+    ManagerRepositoryPort,
+    RateOrderRepositoryPort,
+    SettingsRepositoryPort,
+    WalletRepositoryPort,
+)
 from db_asyncpg.repo import Repo
 from handlers import (
     AcceptShortHandler,
@@ -29,6 +46,14 @@ from handlers import (
     BroadcastAllHandler,
 )
 from services.aml import AMLQueueService, AMLService
+from services.admin_client import (
+    ClientBootstrapService,
+    ClientDirectoryService,
+    ClientGroupService,
+    ManagerAdminService,
+    NonZeroWalletQueryService,
+    UsdtWalletService,
+)
 from services.client_balances import (
     ClientBalancesFilterService,
     ClientBalancesQueryService,
@@ -46,7 +71,7 @@ from utils.offices import OFFICE_CARDS
 
 @dataclass(slots=True)
 class AppServices:
-    daily_balances_scheduler: object | None = None
+    daily_balances_scheduler: AsyncIOScheduler | None = None
     market_ws_service: RapiraWsService | None = None
     orderbook_service: OrderbookService | None = None
     rate_order_service: RateOrderService | None = None
@@ -65,6 +90,20 @@ def setup_handlers(
     admin_chat_list = [config.admin_chat_id] if config.admin_chat_id else None
     admin_user_list = config.admin_ids if config.admin_ids else None
 
+    manager_repo = cast(ManagerRepositoryPort, repo)
+    settings_repo = cast(SettingsRepositoryPort, repo)
+    client_repo = cast(ClientRepositoryPort, repo)
+    wallet_repo = cast(WalletRepositoryPort, repo)
+    client_wallet_repo = cast(ClientWalletRepositoryPort, repo)
+    client_wallet_tx_repo = cast(ClientWalletTransactionRepositoryPort, repo)
+    managed_client_wallet_tx_repo = cast(ManagedClientWalletTransactionRepositoryPort, repo)
+    client_wallet_schedule_repo = cast(ClientWalletScheduleRepositoryPort, repo)
+    managed_client_wallet_schedule_repo = cast(ManagedClientWalletScheduleRepositoryPort, repo)
+    live_message_repo = cast(LiveMessageRepositoryPort, repo)
+    rate_order_repo = cast(RateOrderRepositoryPort, repo)
+    exchange_request_repo = cast(ExchangeRequestRepositoryPort, repo)
+    exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
+
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map
     default_city = config.default_city
@@ -74,32 +113,29 @@ def setup_handlers(
 
     services = AppServices()
 
-    managers_handler = ManagersHandler(
-        repo,
-        config.admin_chat_id,
-    )
+    managers_handler = ManagersHandler(ManagerAdminService(manager_repo), config.admin_chat_id)
     dp.include_router(managers_handler.router)
 
     usdt_wallet_handler = UsdtWalletHandler(
-        repo,
+        UsdtWalletService(settings_repo),
         admin_chat_ids={config.admin_chat_id} if getattr(config, "admin_chat_id", None) else set(),
     )
     dp.include_router(usdt_wallet_handler.router)
 
-    start_handler = StartHandler(repo)
+    start_handler = StartHandler(ClientBootstrapService(client_wallet_repo))
     calc_handler = CalcHandler()
 
     office_handler = OfficeCardsHandler(OFFICE_CARDS)
     dp.include_router(office_handler.router)
     dp.include_router(debug_router)
 
-    nonzero_handler = NonZeroHandler(repo)
+    nonzero_handler = NonZeroHandler(NonZeroWalletQueryService(client_wallet_tx_repo))
 
     services.market_ws_service = RapiraWsService()
 
     services.orderbook_service = OrderbookService(
         ws_service=services.market_ws_service,
-        repo=repo,
+        repo=live_message_repo,
         exchange_name="Rapira",
         symbol_label="USDT/RUB",
     )
@@ -118,7 +154,7 @@ def setup_handlers(
 
     if config.rate_orders_chat_id:
         services.rate_order_service = RateOrderService(
-            repo=repo,
+            repo=rate_order_repo,
             orders_chat_id=config.rate_orders_chat_id,
             get_current_best_ask=lambda: (
                 services.market_ws_service.best_ask
@@ -178,7 +214,7 @@ def setup_handlers(
     )
     dp.include_router(admin_request_handler.router)
 
-    balances_query_service = ClientBalancesQueryService(repo)
+    balances_query_service = ClientBalancesQueryService(wallet_repo)
     balances_filter_service = ClientBalancesFilterService()
     balances_report_builder = ClientBalancesReportBuilder()
 
@@ -205,7 +241,7 @@ def setup_handlers(
     )
 
     clients_handler = ClientsHandler(
-        repo,
+        ClientDirectoryService(client_repo),
         admin_chat_ids=admin_chat_list,
     )
     dp.include_router(clients_handler.router)
@@ -218,7 +254,7 @@ def setup_handlers(
     dp.include_router(broadcast_all_handler.router)
 
     city_handler = CityAssignHandler(
-        repo,
+        ClientGroupService(client_repo),
         admin_chat_ids=admin_chat_list,
     )
     dp.include_router(city_handler.router)
@@ -242,7 +278,7 @@ def setup_handlers(
     dp.include_router(wallets_handler.router)
 
     if request_chat_id:
-        dp.include_router(get_table_done_router(repo=repo, request_chat_ids=[request_chat_id]))
+        dp.include_router(get_table_done_router(repo=exchange_request_repo, request_chat_ids=[request_chat_id]))
         dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
 
     return services

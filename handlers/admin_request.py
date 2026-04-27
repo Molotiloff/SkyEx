@@ -29,7 +29,7 @@ class AdminRequestHandler:
     """
 
     RECV_MAP = {"пд": "USD", "пе": "EUR", "пт": "USDT", "пр": "RUB"}
-    PAY_MAP  = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB"}
+    PAY_MAP = {"од": "USD", "ое": "EUR", "от": "USDT", "ор": "RUB"}
 
     _RX = re.compile(
         r"""(?ixu)
@@ -89,7 +89,7 @@ class AdminRequestHandler:
         user_comment = (m.group("comment") or "").strip()
 
         recv_code = self.RECV_MAP.get(recv_key)
-        pay_code  = self.PAY_MAP .get(pay_key)
+        pay_code = self.PAY_MAP .get(pay_key)
         if not recv_code or not pay_code:
             await message.answer("Не распознал валюты. Используйте пд/пе/пт/пр и од/ое/от/ор.")
             return
@@ -97,7 +97,7 @@ class AdminRequestHandler:
         # Проверка выражений
         try:
             recv_raw = evaluate(recv_expr)
-            pay_raw  = evaluate(pay_expr)
+            pay_raw = evaluate(pay_expr)
             if recv_raw <= 0 or pay_raw <= 0:
                 await message.answer("Суммы должны быть > 0")
                 return
@@ -127,19 +127,19 @@ class AdminRequestHandler:
             pass
 
         recv_prec = recv_prec if recv_prec is not None else default_precision(recv_code)
-        pay_prec  = pay_prec  if pay_prec  is not None else default_precision(pay_code)
+        pay_prec = pay_prec if pay_prec is not None else default_precision(pay_code)
 
         # Квантуем для вывода
         q_recv = Decimal(10) ** -recv_prec
-        q_pay  = Decimal(10) ** -pay_prec
+        q_pay = Decimal(10) ** -pay_prec
         recv_q = recv_raw.quantize(q_recv, rounding=ROUND_HALF_UP)
-        pay_q  = pay_raw .quantize(q_pay,  rounding=ROUND_HALF_UP)
+        pay_q = pay_raw .quantize(q_pay,  rounding=ROUND_HALF_UP)
 
         # Курс «как людям удобно»
         try:
             if recv_code.upper() == "RUB" or pay_code.upper() == "RUB":
-                rub_raw   = recv_raw if recv_code.upper() == "RUB" else pay_raw
-                other_raw = pay_raw  if recv_code.upper() == "RUB" else recv_raw
+                rub_raw = recv_raw if recv_code.upper() == "RUB" else pay_raw
+                other_raw = pay_raw if recv_code.upper() == "RUB" else recv_raw
                 rate = rub_raw / other_raw
             else:
                 rate = pay_raw / recv_raw
@@ -154,7 +154,7 @@ class AdminRequestHandler:
         # Карточка заявки
         req_id = random.randint(10_000_000, 99_999_999)
         pretty_recv = format_amount_core(recv_q, recv_prec)
-        pretty_pay  = format_amount_core(pay_q,  pay_prec)
+        pretty_pay = format_amount_core(pay_q,  pay_prec)
 
         lines = [
             f"Заявка: <code>{req_id}</code>",

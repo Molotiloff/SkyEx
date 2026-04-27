@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import TransactionRepositoryPort
 from services.exchange.card_parser import parse_get_give
 
 
@@ -21,7 +21,7 @@ class CancelExchangeResult:
 
 
 class ExchangeBalanceService:
-    def __init__(self, repo: Repo) -> None:
+    def __init__(self, repo: TransactionRepositoryPort) -> None:
         self.repo = repo
 
     async def apply_create(

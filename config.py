@@ -82,7 +82,6 @@ class Config:
     city_cash_chat_ids: set[int]
     getblock: GetBlockSettings | None
 
-
     @classmethod
     def from_env(cls) -> "Config":
         try:
@@ -154,4 +153,3 @@ class Config:
             city_cash_chat_ids=city_cash_chat_ids,
             getblock=getblock,
         )
-    

@@ -1,5 +1,5 @@
 # utils/wallet_bootstrap.py
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import WalletRepositoryPort
 
 DEFAULT_CURRENCIES: list[tuple[str, int]] = [
     ("USD", 2),
@@ -12,7 +12,7 @@ DEFAULT_CURRENCIES: list[tuple[str, int]] = [
 ]
 
 
-async def ensure_default_accounts(repo: Repo, client_id: int) -> None:
+async def ensure_default_accounts(repo: WalletRepositoryPort, client_id: int) -> None:
     rows = await repo.snapshot_wallet(client_id)
     if rows:  # уже есть валюты — ничего не делаем
         return

@@ -76,10 +76,12 @@ class WalletInteractionService:
         except ValueError as e:
             return WalletCommandResult(ok=False, message_text=str(e))
         except WalletError as we:
-            log.exception("WalletError in _on_currency_change chat_id=%s msg_id=%s", message.chat.id, message.message_id)
+            log.exception("WalletError in _on_currency_change chat_id=%s msg_id=%s",
+                          message.chat.id, message.message_id)
             return WalletCommandResult(ok=False, message_text=f"Ошибка: {we}")
         except Exception as e:
-            log.exception("Exception in _on_currency_change chat_id=%s msg_id=%s", message.chat.id, message.message_id)
+            log.exception("Exception in _on_currency_change chat_id=%s msg_id=%s",
+                          message.chat.id, message.message_id)
             return WalletCommandResult(ok=False, message_text=f"Не удалось обработать операцию: {e}")
 
     def parse_remove_currency_callback(self, data: str | None) -> tuple[str, str]:

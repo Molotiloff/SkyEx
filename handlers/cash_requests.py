@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from typing import Iterable, Mapping
+from typing import cast
 
 from aiogram import F, Router
 from aiogram.filters import Command
 
+from db_asyncpg.ports import (
+    ManagedClientWalletScheduleRepositoryPort,
+    ManagedClientWalletTransactionRepositoryPort,
+    ManagerRepositoryPort,
+    RequestScheduleRepositoryPort,
+)
 from db_asyncpg.repo import Repo
 from keyboards.request import CB_DEAL_CANCEL, CB_DEAL_DONE, CB_ISSUE_DONE
 from services.cash_requests import (
@@ -35,6 +42,10 @@ class CashRequestsHandler:
         self.repo = repo
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.admin_user_ids = set(admin_user_ids or [])
+        schedule_repo = cast(RequestScheduleRepositoryPort, repo)
+        managed_wallet_schedule_repo = cast(ManagedClientWalletScheduleRepositoryPort, repo)
+        managed_wallet_tx_repo = cast(ManagedClientWalletTransactionRepositoryPort, repo)
+        manager_repo = cast(ManagerRepositoryPort, repo)
 
         self.router = Router()
 
@@ -46,12 +57,12 @@ class CashRequestsHandler:
         )
 
         self.schedule_service = RequestScheduleService(
-            repo=repo,
+            repo=schedule_repo,
             router_service=self.router_service,
         )
 
         self.request_service = CashRequestService(
-            repo=repo,
+            repo=managed_wallet_schedule_repo,
             router_service=self.router_service,
             schedule_service=self.schedule_service,
             cmd_map=CMD_MAP,
@@ -61,7 +72,7 @@ class CashRequestsHandler:
         )
 
         self.request_time_service = RequestTimeService(
-            repo=repo,
+            repo=manager_repo,
             router_service=self.router_service,
             schedule_service=self.schedule_service,
             admin_chat_ids=self.admin_chat_ids,
@@ -69,13 +80,13 @@ class CashRequestsHandler:
         )
 
         self.request_issue_service = RequestIssueService(
-            repo=repo,
+            repo=managed_wallet_tx_repo,
             admin_chat_ids=self.admin_chat_ids,
             admin_user_ids=self.admin_user_ids,
         )
 
         self.request_deal_done_service = RequestDealDoneService(
-            repo=repo,
+            repo=manager_repo,
             router_service=self.router_service,
             schedule_service=self.schedule_service,
             admin_chat_ids=self.admin_chat_ids,
@@ -83,7 +94,7 @@ class CashRequestsHandler:
         )
 
         self.request_deal_cancel_service = RequestDealCancelService(
-            repo=repo,
+            repo=manager_repo,
             router_service=self.router_service,
             schedule_service=self.schedule_service,
             admin_chat_ids=self.admin_chat_ids,

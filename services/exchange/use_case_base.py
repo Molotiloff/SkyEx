@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
 from services.exchange.balance_service import ExchangeBalanceService
 from services.exchange.calculator import ExchangeCalculator
 from services.exchange.text_builder import ExchangeTextBuilder
@@ -10,7 +10,7 @@ class _ExchangeUseCaseBase:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ExchangeWorkflowRepositoryPort,
         request_chat_id: int | None,
         balance_service: ExchangeBalanceService,
         calculator: ExchangeCalculator,

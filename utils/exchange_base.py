@@ -5,15 +5,13 @@ from decimal import Decimal
 
 from aiogram.types import CallbackQuery, Message
 
-from db_asyncpg.repo import Repo
-from services.exchange import (
-    CancelExchangeRequest,
-    CreateExchangeRequest,
-    EditExchangeRequest,
-    ExchangeBalanceService,
-    ExchangeCalculator,
-    ExchangeTextBuilder,
-)
+from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
+from services.exchange.balance_service import ExchangeBalanceService
+from services.exchange.calculator import ExchangeCalculator
+from services.exchange.cancel_exchange_request import CancelExchangeRequest
+from services.exchange.create_exchange_request import CreateExchangeRequest
+from services.exchange.edit_exchange_request import EditExchangeRequest
+from services.exchange.text_builder import ExchangeTextBuilder
 
 
 class AbstractExchangeHandler(ABC):
@@ -23,7 +21,7 @@ class AbstractExchangeHandler(ABC):
     Конкретные handlers сохраняют прежний API, а бизнес-сценарии живут в use-case классах.
     """
 
-    def __init__(self, repo: Repo, request_chat_id: int | None = None) -> None:
+    def __init__(self, repo: ExchangeWorkflowRepositoryPort, request_chat_id: int | None = None) -> None:
         self.repo = repo
         self.request_chat_id = request_chat_id
         self.balance_service = ExchangeBalanceService(repo)

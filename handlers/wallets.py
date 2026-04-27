@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import re
 from typing import Iterable
+from typing import cast
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
+from db_asyncpg.ports import ClientTransferRepositoryPort
 from db_asyncpg.repo import Repo
 from services.wallets import WalletInteractionService, WalletService
 from utils.auth import (
@@ -35,8 +37,9 @@ class WalletsHandler:
         self.admin_user_ids = set(admin_user_ids or [])
         self.ignore_chat_ids = set(ignore_chat_ids or [])
         self.city_cash_chat_ids = set(city_cash_chat_ids or [])
+        wallet_repo = cast(ClientTransferRepositoryPort, repo)
         self.wallet_service = WalletService(
-            repo=repo,
+            repo=wallet_repo,
             city_cash_chat_ids=city_cash_chat_ids,
         )
         self.interaction_service = WalletInteractionService(wallet_service=self.wallet_service)

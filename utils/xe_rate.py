@@ -31,6 +31,7 @@ _BAD_HTML_MARKERS = (
     "just a moment",
 )
 
+
 class XERateError(Exception):
     pass
 
@@ -81,11 +82,11 @@ async def fetch_xe_rate(from_code: str = "EUR", to_code: str = "USD", *, retries
     for attempt in range(1, retries + 1):
         try:
             async with httpx.AsyncClient(
-                timeout=timeout,
-                headers=headers,
-                http2=True,          # важно для XE/CloudFront
-                follow_redirects=True,
-                trust_env=True,      # использовать системные CA / прокси, если есть
+                    timeout=timeout,
+                    headers=headers,
+                    http2=True,  # важно для XE/CloudFront
+                    follow_redirects=True,
+                    trust_env=True,  # использовать системные CA / прокси, если есть
             ) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
@@ -130,6 +131,5 @@ async def diagnose_xe(from_code="USD", to_code="EUR"):
         for name, rx in (("og", _RE_OG_DESC), ("eq", _RE_INLINE_EQ), ("words", _RE_INLINE_WORDS)):
             m = rx.search(r.text)
             if m:
-                s, e = max(0, m.start()-100), min(len(r.text), m.end()+100)
+                s, e = max(0, m.start() - 100), min(len(r.text), m.end() + 100)
                 print(f"[{name}] sample:", r.text[s:e].replace("\n", " ")[:400])
-

@@ -1,25 +1,11 @@
-import html
 from typing import Iterable
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
-from db_asyncpg.repo import Repo
 from keyboards import confirm_kb
-
-
-def _chunk(text: str, limit: int = 3500) -> list[str]:
-    out, cur, total = [], [], 0
-    for line in text.splitlines(True):
-        if total + len(line) > limit and cur:
-            out.append("".join(cur))
-            cur, total = [], 0
-        cur.append(line)
-        total += len(line)
-    if cur:
-        out.append("".join(cur))
-    return out
+from services.admin_client import ClientDirectoryService
 
 
 class ClientsHandler:
@@ -29,8 +15,8 @@ class ClientsHandler:
     /rmclient <chat_id> — мягко удалить клиента (is_active=false) с подтверждением
     """
 
-    def __init__(self, repo: Repo, admin_chat_ids: Iterable[int] | None = None) -> None:
-        self.repo = repo
+    def __init__(self, service: ClientDirectoryService, admin_chat_ids: Iterable[int] | None = None) -> None:
+        self.service = service
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.router = Router()
         self._register()
@@ -43,37 +29,7 @@ class ClientsHandler:
         parts = (message.text or "").split(maxsplit=1)
         group = parts[1].strip() if len(parts) > 1 and parts[1].strip() else None
 
-        if group:
-            clients = await self.repo.list_clients_by_group(group)
-            title = f"<b>Клиенты группы «{html.escape(group)}»: {len(clients)}</b>"
-        else:
-            clients = await self.repo.list_clients()
-            title = f"<b>Клиенты: {len(clients)}</b>"
-
-        if not clients:
-            if group:
-                await message.answer(
-                    f"В группе «{html.escape(group)}» нет активных клиентов.",
-                    parse_mode="HTML",
-                )
-            else:
-                await message.answer("Нет активных клиентов.")
-            return
-
-        lines: list[str] = [title]
-        for c in sorted(clients, key=lambda x: (x.get("name") or "").lower()):
-            name = html.escape(c.get("name") or "")
-            client_group = html.escape(c.get("client_group") or "")
-            chat_id = c["chat_id"]
-
-            line = f"{name}"
-            if client_group:
-                line += f" — {client_group}"
-            line += f"\n    chat_id = <code>{chat_id}</code>"
-            lines.append(line)
-
-        text = "\n".join(lines)
-        for chunk in _chunk(text):
+        for chunk in await self.service.build_clients_chunks(group=group):
             await message.answer(chunk, parse_mode="HTML")
 
     async def _cmd_rmclient(self, message: Message) -> None:
@@ -81,23 +37,16 @@ class ClientsHandler:
             await message.answer("Команда доступна только в админском чате.")
             return
 
-        parts = (message.text or "").split(maxsplit=1)
-        if len(parts) < 2 or not parts[1].strip():
+        chat_id_to_remove = self.service.parse_rmclient_chat_id(message.text or "")
+        if chat_id_to_remove is None:
             await message.answer("Использование: /rmclient <chat_id>")
             return
-
-        try:
-            chat_id_to_remove = int(parts[1].strip())
-        except ValueError:
+        if chat_id_to_remove == -1:
             await message.answer("Ошибка: chat_id должен быть числом.")
             return
 
-        text = (
-            "Подтвердите удаление клиента (мягкое — is_active=false).\n"
-            f"chat_id = <code>{chat_id_to_remove}</code>"
-        )
         await message.answer(
-            text,
+            self.service.build_remove_confirmation(chat_id_to_remove),
             parse_mode="HTML",
             reply_markup=confirm_kb(
                 yes_cb=f"rmcli:{chat_id_to_remove}:yes",
@@ -133,18 +82,7 @@ class ClientsHandler:
             return
 
         try:
-            ok = await self.repo.remove_client(chat_id_to_remove)
-            if ok:
-                new_text = (
-                    "Клиент помечен как неактивный (is_active=false).\n"
-                    f"chat_id = <code>{chat_id_to_remove}</code>"
-                )
-            else:
-                new_text = (
-                    "Клиент не найден или уже неактивен.\n"
-                    f"chat_id = <code>{chat_id_to_remove}</code>"
-                )
-
+            new_text = await self.service.confirm_remove(chat_id_to_remove)
             try:
                 await cq.message.edit_text(new_text, parse_mode="HTML")
             except Exception:

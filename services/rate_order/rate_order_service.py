@@ -7,7 +7,7 @@ from typing import Callable
 
 from aiogram import Bot
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import RateOrderRepositoryPort
 
 log = logging.getLogger("rate_orders")
 
@@ -16,7 +16,7 @@ class RateOrderService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: RateOrderRepositoryPort,
         orders_chat_id: int,
         get_current_best_ask: Callable[[], Decimal | None] | None = None,
     ) -> None:

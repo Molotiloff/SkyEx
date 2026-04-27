@@ -10,7 +10,7 @@ from aiogram import Bot
 from aiogram.types import Message
 from aiogram.exceptions import TelegramMigrateToChat
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientTransferRepositoryPort
 from utils.formatting import format_amount_core, format_amount_with_sign
 from utils.info import get_chat_name
 
@@ -35,7 +35,7 @@ def _pick_photo_file_id(message: Message) -> Optional[str]:
 
 async def _safe_send_with_migration(
     *,
-    repo: Repo,
+    repo: ClientTransferRepositoryPort,
     bot: Bot,
     target_chat_id: int,
     target_client_id: int,
@@ -74,7 +74,7 @@ async def _safe_send_with_migration(
 
 async def city_cash_transfer_to_client(
     *,
-    repo: Repo,
+    repo: ClientTransferRepositoryPort,
     bot: Bot,
     src_message: Message,
     currency_code: str,
@@ -200,7 +200,8 @@ async def city_cash_transfer_to_client(
             send_coro_factory=_send_receipt,
         )
     except Exception:
-        log.exception("FAILED sending receipt to client chat. client_id=%s chat_id=%s", target_client_id, target_chat_id)
+        log.exception("FAILED sending receipt to client chat. client_id=%s chat_id=%s", target_client_id,
+                      target_chat_id)
         return CityTransferResult(
             ok=False,
             error="⚠️ Не удалось отправить квитанцию/фото в чат клиента (проверьте доступ бота).",
@@ -213,7 +214,8 @@ async def city_cash_transfer_to_client(
         target_accounts2 = await repo.snapshot_wallet(target_client_id)
         target_acc2 = next((r for r in target_accounts2 if str(r["currency_code"]).upper() == code), None)
         target_bal = Decimal(str(target_acc2["balance"])) if target_acc2 else Decimal("0")
-        target_prec2 = int(target_acc2["precision"]) if target_acc2 and target_acc2.get("precision") is not None else target_prec
+        target_prec2 = int(target_acc2["precision"]) if target_acc2 and target_acc2.get("precision") is not None else (
+            target_prec)
         pretty_bal = format_amount_core(target_bal, target_prec2)
 
         async def _send_balance(chat_id: int):
@@ -230,7 +232,8 @@ async def city_cash_transfer_to_client(
         )
 
     except Exception:
-        log.exception("FAILED sending balance to client chat. client_id=%s chat_id=%s", target_client_id, target_chat_id)
+        log.exception("FAILED sending balance to client chat. client_id=%s chat_id=%s", target_client_id,
+                      target_chat_id)
         # баланс не критичен — считаем успехом, но вернём предупреждение
         return CityTransferResult(
             ok=True,
@@ -241,7 +244,8 @@ async def city_cash_transfer_to_client(
             pretty_balance=None,
         )
 
-    log.info("DONE transfer client_id=%s chat_id=%s delta=%s bal=%s", target_client_id, target_chat_id, pretty_delta, pretty_bal)
+    log.info("DONE transfer client_id=%s chat_id=%s delta=%s bal=%s", target_client_id, target_chat_id,
+             pretty_delta, pretty_bal)
 
     return CityTransferResult(
         ok=True,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import WalletRepositoryPort
 
 
 @dataclass(slots=True, frozen=True)
@@ -18,7 +18,7 @@ class ClientBalanceRow:
 
 
 class ClientBalancesQueryService:
-    def __init__(self, repo: Repo) -> None:
+    def __init__(self, repo: WalletRepositoryPort) -> None:
         self.repo = repo
 
     async def balances_by_client(self) -> list[ClientBalanceRow]:

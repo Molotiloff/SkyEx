@@ -8,7 +8,7 @@ from decimal import Decimal
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import LiveMessageRepositoryPort
 
 log = logging.getLogger("orderbook_service")
 
@@ -20,7 +20,7 @@ class OrderbookService:
         self,
         *,
         ws_service,
-        repo: Repo,
+        repo: LiveMessageRepositoryPort,
         exchange_name: str = "Биржа",
         symbol_label: str = "USDT/RUB",
         disabled_reason: str | None = None,
@@ -275,4 +275,4 @@ class OrderbookService:
                         return
         finally:
             if self._pending_refresh and self._live_chat_id and self._live_message_id:
-                asyncio.create_task(self.refresh_live_message(bot=bot))
+                await asyncio.create_task(self.refresh_live_message(bot=bot))

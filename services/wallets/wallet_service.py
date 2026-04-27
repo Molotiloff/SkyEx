@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from typing import Iterable
+from typing import cast
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import (
+    ClientTransferRepositoryPort,
+    ClientWalletRepositoryPort,
+    ClientWalletTransactionRepositoryPort,
+)
 from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
 from services.wallets.mutation_service import CurrencyMutationService
@@ -17,20 +22,22 @@ class WalletService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ClientTransferRepositoryPort,
         city_cash_chat_ids: Iterable[int] | None = None,
     ) -> None:
         self.repo = repo
         self.text_builder = WalletTextBuilder()
         self.parser = WalletCommandParser(city_cash_chat_ids=city_cash_chat_ids)
-        self.query_service = WalletQueryService(repo=repo, text_builder=self.text_builder)
+        wallet_query_repo = cast(ClientWalletRepositoryPort, repo)
+        wallet_undo_repo = cast(ClientWalletTransactionRepositoryPort, repo)
+        self.query_service = WalletQueryService(repo=wallet_query_repo, text_builder=self.text_builder)
         self.mutation_service = CurrencyMutationService(
             repo=repo,
             parser=self.parser,
             text_builder=self.text_builder,
         )
         self.undo_service = WalletUndoService(
-            repo=repo,
+            repo=wallet_undo_repo,
             parser=self.parser,
             text_builder=self.text_builder,
         )

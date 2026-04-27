@@ -4,7 +4,7 @@ from typing import Mapping
 
 from aiogram.types import Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ManagedClientWalletScheduleRepositoryPort
 from services.cash_requests.create_cash_request import CreateCashRequest
 from services.cash_requests.edit_cash_request import EditCashRequest
 from services.cash_requests.request_router_service import RequestRouterService
@@ -17,7 +17,7 @@ class CashRequestService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ManagedClientWalletScheduleRepositoryPort,
         router_service: RequestRouterService,
         schedule_service: RequestScheduleService,
         cmd_map: Mapping[str, tuple[str, str]],

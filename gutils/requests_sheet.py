@@ -1,13 +1,16 @@
 # gutils/requests_sheet.py
 from __future__ import annotations
-import json, os, re
+
+import json
+import os
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Union, Any
 
-from googleapiclient.errors import HttpError
-from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 
 class SheetsWriteError(Exception):
@@ -50,13 +53,13 @@ def _get_credentials() -> Any:
     if _cached["creds"]:
         return _cached["creds"]
     json_inline = (
-        os.getenv("GOOGLE_CREDENTIALS_JSON")
-        or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+            os.getenv("GOOGLE_CREDENTIALS_JSON")
+            or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
     )
     json_path = (
-        os.getenv("GOOGLE_CREDENTIALS_FILE")
-        or os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
-        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            os.getenv("GOOGLE_CREDENTIALS_FILE")
+            or os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE")
+            or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     )
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
     if json_inline:
@@ -82,11 +85,11 @@ def _resolve_spreadsheet_id(spreadsheet: Optional[str]) -> str:
     if _cached["spreadsheet_id"]:
         return _cached["spreadsheet_id"]
     candidate = (
-        spreadsheet
-        or os.getenv("GOOGLE_SHEET_URL")
-        or os.getenv("GOOGLE_SHEET_ID")
-        or os.getenv("SPREADSHEET_URL")
-        or os.getenv("SPREADSHEET_ID")
+            spreadsheet
+            or os.getenv("GOOGLE_SHEET_URL")
+            or os.getenv("GOOGLE_SHEET_ID")
+            or os.getenv("SPREADSHEET_URL")
+            or os.getenv("SPREADSHEET_ID")
     )
     if not candidate:
         raise SheetsWriteError("Не задан spreadsheet.")
@@ -142,17 +145,17 @@ def read_main_rate(code: str, cell_map: dict[str, str] | None = None) -> Decimal
 
 # === Основные функции ===
 def append_sale_row(
-    *,
-    in_currency: str,
-    out_currency: str,
-    in_amount: Union[str, int, float, Decimal],
-    out_amount: Union[str, int, float, Decimal],
-    rate: Union[str, int, float, Decimal],
-    created_at: Optional[Union[str, datetime]] = None,
-    spreadsheet: Optional[str] = None,
-    sheet_name: str = "Продажа",
-    cell_map=None,
-    request_id: Optional[int | str] = None,
+        *,
+        in_currency: str,
+        out_currency: str,
+        in_amount: Union[str, int, float, Decimal],
+        out_amount: Union[str, int, float, Decimal],
+        rate: Union[str, int, float, Decimal],
+        created_at: Optional[Union[str, datetime]] = None,
+        spreadsheet: Optional[str] = None,
+        sheet_name: str = "Продажа",
+        cell_map=None,
+        request_id: Optional[int | str] = None,
 ) -> tuple[int, Optional[Decimal]]:
     """Записывает строку на лист 'Продажа'. Столбец D — свежий курс из «Главная», столбец B — номер заявки."""
     if cell_map is None:
@@ -203,14 +206,14 @@ def append_sale_row(
 
 
 def append_buy_row(
-    *,
-    currency: str,
-    amount: Union[str, int, float, Decimal],
-    rate: Union[str, int, float, Decimal],
-    created_at: Optional[Union[str, datetime]] = None,
-    spreadsheet: Optional[str] = None,
-    sheet_name: str = "Покупка",
-    request_id: Optional[int | str] = None,
+        *,
+        currency: str,
+        amount: Union[str, int, float, Decimal],
+        rate: Union[str, int, float, Decimal],
+        created_at: Optional[Union[str, datetime]] = None,
+        spreadsheet: Optional[str] = None,
+        sheet_name: str = "Покупка",
+        request_id: Optional[int | str] = None,
 ) -> int:
     """Записывает строку на лист 'Покупка'. Столбец B — номер заявки."""
     try:
@@ -247,6 +250,7 @@ def append_buy_row(
         raise SheetsWriteError(f"Ошибка Google Sheets API: {e}") from e
     except Exception as e:
         raise SheetsWriteError(str(e)) from e
+
 
 def _find_rows_by_req_id(service, sid: str, sheet_name: str, req_id: int | str) -> list[int]:
     """
@@ -300,10 +304,10 @@ def _get_sheet_id(service, sid: str, sheet_name: str) -> int:
 
 
 def delete_rows_by_request_id(
-    *,
-    req_id: int | str,
-    spreadsheet: Optional[str] = None,
-    sheets: tuple[str, str] = ("Покупка", "Продажа"),
+        *,
+        req_id: int | str,
+        spreadsheet: Optional[str] = None,
+        sheets: tuple[str, str] = ("Покупка", "Продажа"),
 ) -> dict[str, int]:
     """
     Удаляет ВСЕ строки, где B == req_id, на указанных листах.

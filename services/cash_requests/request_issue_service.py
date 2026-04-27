@@ -6,7 +6,7 @@ from typing import Optional
 
 from aiogram.types import CallbackQuery
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ManagedClientWalletTransactionRepositoryPort
 from keyboards.request import CB_ISSUE_DONE
 from services.cash_requests.legacy_request_parsing import parse_kind_amount_code
 from utils.auth import require_manager_or_admin_callback
@@ -21,7 +21,7 @@ class RequestIssueService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ManagedClientWalletTransactionRepositoryPort,
         admin_chat_ids: set[int],
         admin_user_ids: set[int],
     ) -> None:

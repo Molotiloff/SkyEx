@@ -6,13 +6,13 @@ from typing import Any
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InputMediaPhoto, Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientRepositoryPort
 
 logger = logging.getLogger(__name__)
 
 
 class BroadcastService:
-    def __init__(self, *, repo: Repo) -> None:
+    def __init__(self, *, repo: ClientRepositoryPort) -> None:
         self.repo = repo
 
     @staticmethod

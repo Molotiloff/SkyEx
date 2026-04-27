@@ -5,7 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from aiogram.types import Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientTransferRepositoryPort
 from keyboards import rmcur_confirm_kb
 from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
@@ -21,7 +21,7 @@ class CurrencyMutationService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ClientTransferRepositoryPort,
         parser: WalletCommandParser | None = None,
         text_builder: WalletTextBuilder | None = None,
     ) -> None:

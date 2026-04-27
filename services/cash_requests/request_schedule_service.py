@@ -5,7 +5,7 @@ import logging
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import RequestScheduleRepositoryPort
 from services.cash_requests.models import ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
 
@@ -16,7 +16,7 @@ class RequestScheduleService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: RequestScheduleRepositoryPort,
         router_service: RequestRouterService,
     ) -> None:
         self.repo = repo

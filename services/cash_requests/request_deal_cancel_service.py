@@ -5,7 +5,7 @@ from datetime import datetime
 
 from aiogram.types import CallbackQuery
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ManagerRepositoryPort
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.auth import require_manager_or_admin_callback
@@ -26,7 +26,7 @@ class RequestDealCancelService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ManagerRepositoryPort,
         router_service: RequestRouterService,
         schedule_service: RequestScheduleService,
         admin_chat_ids: set[int],

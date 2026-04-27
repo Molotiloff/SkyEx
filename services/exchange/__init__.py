@@ -1,3 +1,4 @@
+from .accept_short_service import AcceptShortService, ParsedAcceptShortCommand
 from .balance_service import ExchangeBalanceService
 from .calculator import ExchangeCalculation, ExchangeCalculator
 from .cancel_exchange_request import CancelExchangeRequest
@@ -16,11 +17,13 @@ __all__ = [
     "CANCEL_REQUEST_PREFIX",
     "CancelExchangeRequest",
     "CreateExchangeRequest",
+    "AcceptShortService",
     "ExchangeCalculation",
     "ExchangeBalanceService",
     "ExchangeCalculator",
     "ExchangeTextBuilder",
     "EditExchangeRequest",
+    "ParsedAcceptShortCommand",
     "cancel_keyboard",
     "extract_created_by",
     "extract_request_id",

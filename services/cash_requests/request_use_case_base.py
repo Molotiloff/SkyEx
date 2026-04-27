@@ -4,7 +4,7 @@ import random
 
 from aiogram.types import Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientWalletScheduleRepositoryPort
 from services.cash_requests.models import RequestContext, ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
@@ -15,7 +15,7 @@ class CashRequestUseCaseBase:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ClientWalletScheduleRepositoryPort,
         router_service: RequestRouterService,
         schedule_service: RequestScheduleService,
     ) -> None:

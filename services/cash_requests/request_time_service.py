@@ -5,7 +5,7 @@ import re
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ManagerRepositoryPort
 from services.cash_requests.models import ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
@@ -29,7 +29,7 @@ class RequestTimeService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ManagerRepositoryPort,
         router_service: RequestRouterService,
         schedule_service: RequestScheduleService,
         admin_chat_ids: set[int],

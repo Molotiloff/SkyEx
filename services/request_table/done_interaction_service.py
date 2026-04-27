@@ -5,7 +5,7 @@ from typing import Iterable
 
 from aiogram.types import CallbackQuery
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ExchangeRequestRepositoryPort
 from gutils.requests_sheet import SheetsWriteError
 from services.request_table.message_builder import RequestTableMessageBuilder
 from services.request_table.session_store import RequestTableSessionStore
@@ -20,7 +20,7 @@ class RequestTableDoneInteractionService:
     def __init__(
         self,
         *,
-        repo: Repo,
+        repo: ExchangeRequestRepositoryPort,
         request_chat_ids: Iterable[int],
         done_service: RequestTableDoneService,
         session_store: RequestTableSessionStore,
@@ -78,7 +78,8 @@ class RequestTableDoneInteractionService:
             logging.exception("Sheets write failed: %s", e)
             error_text = str(e).lower()
             if "permission" in error_text or "forbidden" in error_text:
-                sa_email = self.sheets_gateway.get_service_account_email() or "service-account@<project>.iam.gserviceaccount.com"
+                sa_email = self.sheets_gateway.get_service_account_email() or ("service-account@<project>.iam"
+                                                                               ".gserviceaccount.com")
                 await cq.answer(
                     self.message_builder.short(
                         f"Нет доступа к таблице.\nВыдайте право «Редактор» для:\n{sa_email}"

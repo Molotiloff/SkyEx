@@ -4,14 +4,13 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 
 from keyboards import MainKeyboard
-from db_asyncpg.repo import Repo
+from services.admin_client import ClientBootstrapService
 from utils.info import get_chat_name
-from utils.wallet_bootstrap import ensure_default_accounts, DEFAULT_CURRENCIES
 
 
 class StartHandler:
-    def __init__(self, repo: Repo) -> None:
-        self.repo = repo
+    def __init__(self, bootstrap_service: ClientBootstrapService) -> None:
+        self.bootstrap_service = bootstrap_service
         self.router = Router()
         self._register()
 
@@ -19,17 +18,7 @@ class StartHandler:
         # регистрируем/обновляем клиента (чат) в БД
         chat_id = message.chat.id
         chat_name = get_chat_name(message)
-        client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
-
-        rows = await self.repo.snapshot_wallet(client_id)
-        existing_codes = {str(r["currency_code"]).upper() for r in rows}
-
-        for code, precision in DEFAULT_CURRENCIES:
-            if code.upper() not in existing_codes:
-                await self.repo.add_currency(client_id, code, precision)
-
-        # добавляем базовые валюты, если кошелёк пуст
-        await ensure_default_accounts(self.repo, client_id)
+        await self.bootstrap_service.ensure_client_wallet(chat_id=chat_id, chat_name=chat_name)
 
         text = (
             "👋 Привет! Я бот команды <b>SKYEX</b>.\n\n"

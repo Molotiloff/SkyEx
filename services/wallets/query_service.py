@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from db_asyncpg.repo import Repo
+from db_asyncpg.ports import ClientWalletRepositoryPort
 from services.wallets.text_builder import WalletTextBuilder
 
 
 class WalletQueryService:
-    def __init__(self, *, repo: Repo, text_builder: WalletTextBuilder | None = None) -> None:
+    def __init__(self, *, repo: ClientWalletRepositoryPort, text_builder: WalletTextBuilder | None = None) -> None:
         self.repo = repo
         self.text_builder = text_builder or WalletTextBuilder()
 

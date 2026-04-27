@@ -86,7 +86,8 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
 
         try:
             cancelled_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-            await msg.edit_text(f"{msg.text}\n----\nОтмена: <code>{cancelled_at}</code>", parse_mode="HTML", reply_markup=None)
+            await msg.edit_text(f"{msg.text}\n----\nОтмена: <code>{cancelled_at}</code>", parse_mode="HTML",
+                                reply_markup=None)
         except Exception:
             try:
                 await msg.edit_reply_markup(reply_markup=None)

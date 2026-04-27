@@ -1,8 +1,7 @@
 # app/db_asyncpg/utils.py
 from decimal import Decimal, ROUND_HALF_UP, getcontext
 
-
-getcontext().prec = 50 # безопасная общая точность Decimal
+getcontext().prec = 50  # безопасная общая точность Decimal
 
 
 def to_upper(code: str) -> str:
