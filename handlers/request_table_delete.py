@@ -1,107 +1,31 @@
-# handlers/request_table_delete.py
 from __future__ import annotations
 
-import logging
-from typing import Iterable, Tuple, Set
+from typing import Iterable
 
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram import F, Router
 
-from gutils.requests_sheet import delete_rows_by_request_id, SheetsWriteError
-from keyboards.request import CB_TABLE_DEL_YES, CB_TABLE_DEL_NO
-
-STATUS_LINE_DELETED = "Статус: Удалено из таблиц 🗑️"
-
-_MARKED: Set[Tuple[int, int]] = set()  # защита от повторной пометки
-_PENDING: Set[Tuple[int, int]] = set()
-
-
-def _append_status_once(text: str, status_line: str) -> str:
-    src = text or ""
-    if status_line in src:
-        return src
-    if not src.endswith("\n"):
-        return src + "\n" + status_line
-    return src + status_line
-
-
-def _processing_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="⏳ Обрабатывается…", callback_data="noop")]]
-    )
+from gutils.requests_sheet_gateway import GutilsSheetsTradeGateway
+from keyboards.request import CB_TABLE_DEL_NO, CB_TABLE_DEL_YES
+from services.request_table.delete_interaction_service import RequestTableDeleteInteractionService
+from services.request_table.message_builder import RequestTableMessageBuilder
+from services.request_table.session_store import RequestTableSessionStore
 
 
 def get_table_delete_router(*, request_chat_ids: Iterable[int]) -> Router:
-    allowed = set(int(x) for x in request_chat_ids)
-    r = Router()
+    router = Router()
+    interaction_service = RequestTableDeleteInteractionService(
+        request_chat_ids=request_chat_ids,
+        session_store=RequestTableSessionStore(),
+        message_builder=RequestTableMessageBuilder(),
+        sheets_gateway=GutilsSheetsTradeGateway(),
+    )
 
-    @r.callback_query(F.data.startswith(CB_TABLE_DEL_NO))
-    async def _cb_delete_no(cq: CallbackQuery) -> None:
-        if not cq.message or cq.message.chat.id not in allowed:
-            await cq.answer("Недоступно здесь.", show_alert=True)
-            return
-        try:
-            await cq.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        await cq.answer("Оставляем строки в таблицах.")
-
-    @r.callback_query(F.data.startswith(CB_TABLE_DEL_YES))
-    async def _cb_delete_yes(cq: CallbackQuery) -> None:
-        if not cq.message or cq.message.chat.id not in allowed:
-            await cq.answer("Недоступно здесь.", show_alert=True)
-            return
-
-        key = (cq.message.chat.id, cq.message.message_id)
-        if key in _PENDING:
-            await cq.answer("⏳ Уже обрабатывается…")
-            return
-
-        try:
-            await cq.message.edit_reply_markup(reply_markup=_processing_kb())
-        except Exception:
-            try:
-                await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-
-        _PENDING.add(key)
-        # формат: req:table_del:yes:<REQ_ID>
-        try:
-            parts = (cq.data or "").split(":")
-            req_id = parts[-1].strip()
-            if not req_id:
-                raise ValueError
-        except Exception:
-            await cq.answer("Некорректные данные", show_alert=True)
-            return
-
-        try:
-            res = delete_rows_by_request_id(req_id=req_id, spreadsheet=None, sheets=("Покупка", "Продажа"))
-        except SheetsWriteError as e:
-            logging.exception("Sheets delete failed: %s", e)
-            await cq.answer("Не удалось удалить из Google Sheets.", show_alert=True)
-            return
-        except Exception as e:
-            logging.exception("Unexpected delete error: %s", e)
-            await cq.answer("Ошибка при удалении.", show_alert=True)
-            return
-        finally:
-            _PENDING.discard(key)
-
-        # пометка в исходном сообщении (если это было сообщение бота с карточкой/уведомлением)
-        new_text = _append_status_once(cq.message.text or "", f"{STATUS_LINE_DELETED} (#{req_id})")
-        try:
-            await cq.message.edit_text(new_text, parse_mode="HTML", reply_markup=None)
-            _MARKED.add((cq.message.chat.id, cq.message.message_id))
-        except Exception:
-            try:
-                await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-
-        deleted_p = res.get("Покупка", 0)
-        deleted_s = res.get("Продажа", 0)
-        await cq.answer(f"Удалено из таблиц: Покупка={deleted_p}, Продажа={deleted_s}")
-
-    return r
+    router.callback_query.register(
+        interaction_service.handle_no,
+        F.data.startswith(CB_TABLE_DEL_NO),
+    )
+    router.callback_query.register(
+        interaction_service.handle_yes,
+        F.data.startswith(CB_TABLE_DEL_YES),
+    )
+    return router
