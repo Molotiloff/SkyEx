@@ -129,10 +129,13 @@ def setup_handlers(
     xe_handler = None
     if config.converter_api_base_url and config.converter_api_token:
         xe_handler = XEHandler(
-            ConverterAPIService(
+            repo=manager_repo,
+            converter_service=ConverterAPIService(
                 base_url=config.converter_api_base_url,
                 api_token=config.converter_api_token,
-            )
+            ),
+            admin_chat_ids=admin_chat_list,
+            admin_user_ids=admin_user_list,
         )
 
     office_handler = OfficeCardsHandler(OFFICE_CARDS)
