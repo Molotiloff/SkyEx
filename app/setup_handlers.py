@@ -29,6 +29,12 @@ from handlers import (
     BroadcastAllHandler,
 )
 from services.aml import AMLQueueService, AMLService
+from services.client_balances import (
+    ClientBalancesFilterService,
+    ClientBalancesQueryService,
+    ClientBalancesReportBuilder,
+    DailyBalancesReportService,
+)
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
 from services.rate_order import (
     OrderbookService,
@@ -172,16 +178,29 @@ def setup_handlers(
     )
     dp.include_router(admin_request_handler.router)
 
+    balances_query_service = ClientBalancesQueryService(repo)
+    balances_filter_service = ClientBalancesFilterService()
+    balances_report_builder = ClientBalancesReportBuilder()
+
     clients_balances_handler = ClientsBalancesHandler(
-        repo,
+        report_service=DailyBalancesReportService(
+            query_service=balances_query_service,
+            filter_service=balances_filter_service,
+            report_builder=balances_report_builder,
+            admin_chat_ids=admin_chat_list,
+        ),
         admin_chat_ids=admin_chat_list,
     )
     dp.include_router(clients_balances_handler.router)
 
     services.daily_balances_scheduler = setup_daily_balances_scheduler(
-        repo=repo,
+        report_service=DailyBalancesReportService(
+            query_service=balances_query_service,
+            filter_service=balances_filter_service,
+            report_builder=balances_report_builder,
+            admin_chat_ids=config.schedule_chat_ids,
+        ),
         bot=bot,
-        schedule_chat_ids=config.schedule_chat_ids,
         timezone="Asia/Yekaterinburg",
     )
 
@@ -223,7 +242,7 @@ def setup_handlers(
     dp.include_router(wallets_handler.router)
 
     if request_chat_id:
-        dp.include_router(get_table_done_router(request_chat_ids=[request_chat_id]))
+        dp.include_router(get_table_done_router(repo=repo, request_chat_ids=[request_chat_id]))
         dp.include_router(get_table_delete_router(request_chat_ids=[request_chat_id]))
 
     return services
