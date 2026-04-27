@@ -1,20 +1,35 @@
 from __future__ import annotations
 
+from typing import Iterable
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from services.xe_api import ConverterAPIError, ConverterAPIService, XEConvertResult
+from db_asyncpg.ports import ManagerRepositoryPort
 from services.xe_formatter import ResponseFormatter
+from services.xe_api import ConverterAPIError, ConverterAPIService
+from utils.auth import manager_or_admin_message_required
 
 
 class XEHandler:
-    def __init__(self, converter_service: ConverterAPIService) -> None:
+    def __init__(
+        self,
+        *,
+        repo: ManagerRepositoryPort,
+        converter_service: ConverterAPIService,
+        admin_chat_ids: Iterable[int] | None = None,
+        admin_user_ids: Iterable[int] | None = None,
+    ) -> None:
+        self.repo = repo
+        self.admin_chat_ids = set(admin_chat_ids or [])
+        self.admin_user_ids = set(admin_user_ids or [])
         self.converter_service = converter_service
         self.formatter = ResponseFormatter()
         self.router = Router()
         self._register()
 
+    @manager_or_admin_message_required
     async def _cmd_xe(self, message: Message) -> None:
         raw_text = (message.text or "").strip()
         parts = raw_text.split(maxsplit=1)
