@@ -1,4 +1,5 @@
 from .accept_short import AcceptShortHandler
+from .act import ActHandler
 from .admin_request import AdminRequestHandler
 from .aml import AMLHandler
 from .balances_clients import ClientsBalancesHandler
@@ -22,6 +23,7 @@ from .xe import XEHandler
 
 __all__ = [
     "AcceptShortHandler",
+    "ActHandler",
     "AdminRequestHandler",
     "AMLHandler",
     "ClientsBalancesHandler",

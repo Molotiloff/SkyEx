@@ -132,3 +132,40 @@ CREATE TABLE IF NOT EXISTS exchange_request_links (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_exchange_request_links_table_req_id
     ON exchange_request_links(table_req_id);
+
+CREATE TABLE IF NOT EXISTS act_checkpoints (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    baseline_amount NUMERIC(38,8) NOT NULL,
+    set_by_user_id BIGINT,
+    comment TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_act_checkpoints_chat_created_at
+    ON act_checkpoints(chat_id, created_at DESC, id DESC);
+
+CREATE TABLE IF NOT EXISTS act_request_transactions (
+    id BIGSERIAL PRIMARY KEY,
+    req_id TEXT NOT NULL,
+    table_req_id TEXT,
+    request_chat_id BIGINT NOT NULL,
+    request_message_id BIGINT NOT NULL,
+    transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    direction TEXT NOT NULL CHECK (direction IN ('IN', 'OUT')),
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'CANCELED')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    canceled_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_act_request_transactions_transaction_id
+    ON act_request_transactions(transaction_id);
+
+CREATE INDEX IF NOT EXISTS idx_act_request_transactions_req_id
+    ON act_request_transactions(req_id);
+
+CREATE INDEX IF NOT EXISTS idx_act_request_transactions_chat_status_created
+    ON act_request_transactions(request_chat_id, status, created_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_act_request_transactions_table_req_id
+    ON act_request_transactions(table_req_id);

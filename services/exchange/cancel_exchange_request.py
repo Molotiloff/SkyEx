@@ -136,6 +136,17 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
             except Exception:
                 log.exception("Failed to mark request chat copy cancelled for exchange request %s", req_id_s)
 
+        if self.act_counter_service:
+            try:
+                await self.act_counter_service.cancel_request(req_id=str(req_id_s))
+                if request_copy is not None:
+                    await self._notify_act_current_amount(
+                        bot=cq.bot,
+                        request_chat_id=int(request_copy[0]),
+                    )
+            except Exception:
+                log.exception("Failed to cancel ACT movements for exchange request %s", req_id_s)
+
         table_done = req_index.is_table_done(table_req_id) if table_req_id else False
         if not table_done and meta and table_req_id and str(meta.get("table_req_id") or "") == str(table_req_id):
             table_done = bool(meta.get("is_table_done"))

@@ -9,11 +9,27 @@ from aiogram.types import Message, CallbackQuery
 
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
 from db_asyncpg.repo import Repo
+from services.act_counter import ActCounterService
 from services.exchange import AcceptShortService
 from utils.auth import (
     require_manager_or_admin_message,
     require_manager_or_admin_callback,
 )
+
+
+def _is_forwarded_message(message: Message) -> bool:
+    return any(
+        getattr(message, attr, None) is not None
+        for attr in (
+            "forward_origin",
+            "forward_from",
+            "forward_from_chat",
+            "forward_sender_name",
+            "forward_signature",
+            "forward_date",
+            "forward_from_message_id",
+        )
+    )
 
 
 class AcceptShortHandler:
@@ -31,11 +47,13 @@ class AcceptShortHandler:
             request_chat_id: int | None = None,
             *,
             ignore_chat_ids: Iterable[int] | None = None,
+            act_counter_service: ActCounterService | None = None,
     ) -> None:
         self.repo = repo
         self.service = AcceptShortService(
             cast(ExchangeWorkflowRepositoryPort, repo),
             request_chat_id=request_chat_id,
+            act_counter_service=act_counter_service,
         )
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.admin_user_ids = set(admin_user_ids or [])
@@ -46,6 +64,10 @@ class AcceptShortHandler:
     async def _cmd_accept_short(self, message: Message) -> None:
         # Игнорируем в "шумных" чатах
         if self.ignore_chat_ids and message.chat and message.chat.id in self.ignore_chat_ids:
+            return
+
+        # Не реагируем на пересланные партнерские сообщения, даже если их переслал наш менеджер.
+        if _is_forwarded_message(message):
             return
 
         # доступ

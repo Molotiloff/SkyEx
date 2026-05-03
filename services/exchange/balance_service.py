@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 from db_asyncpg.ports import TransactionRepositoryPort
+from services.act_counter import AppliedExchangeMovement
 from services.exchange.card_parser import parse_get_give
 
 
@@ -18,6 +19,11 @@ class CancelExchangeResult:
     recv_precision: int
     pay_precision: int
     client_id: int
+
+
+@dataclass(slots=True, frozen=True)
+class CreateExchangeBalanceResult:
+    movements: list[AppliedExchangeMovement]
 
 
 class ExchangeBalanceService:
@@ -38,10 +44,10 @@ class ExchangeBalanceService:
         pay_is_withdraw: bool,
         idem_recv: str,
         idem_pay: str,
-    ) -> None:
+    ) -> CreateExchangeBalanceResult:
         try:
             if recv_is_deposit:
-                await self.repo.deposit(
+                recv_tx_id = await self.repo.deposit(
                     client_id=client_id,
                     currency_code=recv_code,
                     amount=recv_amount,
@@ -50,7 +56,7 @@ class ExchangeBalanceService:
                     idempotency_key=idem_recv,
                 )
             else:
-                await self.repo.withdraw(
+                recv_tx_id = await self.repo.withdraw(
                     client_id=client_id,
                     currency_code=recv_code,
                     amount=recv_amount,
@@ -60,7 +66,7 @@ class ExchangeBalanceService:
                 )
 
             if pay_is_withdraw:
-                await self.repo.withdraw(
+                pay_tx_id = await self.repo.withdraw(
                     client_id=client_id,
                     currency_code=pay_code,
                     amount=pay_amount,
@@ -69,7 +75,7 @@ class ExchangeBalanceService:
                     idempotency_key=idem_pay,
                 )
             else:
-                await self.repo.deposit(
+                pay_tx_id = await self.repo.deposit(
                     client_id=client_id,
                     currency_code=pay_code,
                     amount=pay_amount,
@@ -97,6 +103,20 @@ class ExchangeBalanceService:
                     idempotency_key=f"{idem_recv}:undo",
                 )
             raise
+        return CreateExchangeBalanceResult(
+            movements=[
+                AppliedExchangeMovement(
+                    transaction_id=int(recv_tx_id),
+                    currency_code=recv_code,
+                    direction="IN",
+                ),
+                AppliedExchangeMovement(
+                    transaction_id=int(pay_tx_id),
+                    currency_code=pay_code,
+                    direction="OUT",
+                ),
+            ]
+        )
 
     async def apply_edit_delta(
         self,
@@ -114,10 +134,10 @@ class ExchangeBalanceService:
         cmd_msg_id: int,
         recv_is_deposit: bool,
         pay_is_withdraw: bool,
-    ) -> bool:
+    ) -> list[AppliedExchangeMovement]:
         parsed = parse_get_give(old_request_text)
         if not parsed:
-            return False
+            return []
 
         (old_recv_amt_raw, old_recv_code), (old_pay_amt_raw, old_pay_code) = parsed
         q_recv = Decimal(10) ** -recv_prec
@@ -126,99 +146,143 @@ class ExchangeBalanceService:
         old_pay_amt = old_pay_amt_raw.quantize(q_pay, rounding=ROUND_HALF_UP)
         idem_prefix = f"edit:{chat_id}:{target_bot_msg_id}:{cmd_msg_id}"
 
-        async def apply_recv(amount: Decimal, suffix: str) -> None:
-            if recv_is_deposit:
-                await self.repo.deposit(
-                    client_id=client_id, currency_code=recv_code_new, amount=amount,
-                    comment=f"edit recv {suffix}", source="exchange_edit",
-                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
-                )
-            else:
-                await self.repo.withdraw(
-                    client_id=client_id, currency_code=recv_code_new, amount=amount,
-                    comment=f"edit recv {suffix}", source="exchange_edit",
-                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
-                )
+        movements: list[AppliedExchangeMovement] = []
 
-        async def apply_pay(amount: Decimal, suffix: str) -> None:
+        async def apply_recv(amount: Decimal, suffix: str, *, direction: str) -> None:
+            if recv_is_deposit:
+                tx_id = await self.repo.deposit(
+                    client_id=client_id, currency_code=recv_code_new, amount=amount,
+                    comment=f"edit recv {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
+                )
+            else:
+                tx_id = await self.repo.withdraw(
+                    client_id=client_id, currency_code=recv_code_new, amount=amount,
+                    comment=f"edit recv {suffix}", source="exchange_edit",
+                    idempotency_key=f"{idem_prefix}:{suffix}:recv",
+                )
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=recv_code_new,
+                    direction=direction,
+                )
+            )
+
+        async def apply_pay(amount: Decimal, suffix: str, *, direction: str) -> None:
             if pay_is_withdraw:
-                await self.repo.withdraw(
+                tx_id = await self.repo.withdraw(
                     client_id=client_id, currency_code=pay_code_new, amount=amount,
                     comment=f"edit pay {suffix}", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:{suffix}:pay",
                 )
             else:
-                await self.repo.deposit(
+                tx_id = await self.repo.deposit(
                     client_id=client_id, currency_code=pay_code_new, amount=amount,
                     comment=f"edit pay {suffix}", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:{suffix}:pay",
                 )
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=pay_code_new,
+                    direction=direction,
+                )
+            )
 
         if (old_recv_code != recv_code_new) or (old_pay_code != pay_code_new):
             if recv_is_deposit:
-                await self.repo.withdraw(
+                tx_id = await self.repo.withdraw(
                     client_id=client_id, currency_code=old_recv_code, amount=old_recv_amt,
                     comment="edit revert old recv", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:revert:recv",
                 )
             else:
-                await self.repo.deposit(
+                tx_id = await self.repo.deposit(
                     client_id=client_id, currency_code=old_recv_code, amount=old_recv_amt,
                     comment="edit revert old recv", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:revert:recv",
                 )
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=old_recv_code,
+                    direction="OUT",
+                )
+            )
             if pay_is_withdraw:
-                await self.repo.deposit(
+                tx_id = await self.repo.deposit(
                     client_id=client_id, currency_code=old_pay_code, amount=old_pay_amt,
                     comment="edit revert old pay", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:revert:pay",
                 )
             else:
-                await self.repo.withdraw(
+                tx_id = await self.repo.withdraw(
                     client_id=client_id, currency_code=old_pay_code, amount=old_pay_amt,
                     comment="edit revert old pay", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:revert:pay",
                 )
-            await apply_recv(recv_amount_new, "apply")
-            await apply_pay(pay_amount_new, "apply")
-            return True
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=old_pay_code,
+                    direction="IN",
+                )
+            )
+            await apply_recv(recv_amount_new, "apply", direction="IN")
+            await apply_pay(pay_amount_new, "apply", direction="OUT")
+            return movements
 
         d_recv = recv_amount_new - old_recv_amt
         d_pay = pay_amount_new - old_pay_amt
 
         if d_recv > 0:
-            await apply_recv(d_recv, "delta+")
+            await apply_recv(d_recv, "delta+", direction="IN")
         elif d_recv < 0:
             if recv_is_deposit:
-                await self.repo.withdraw(
+                tx_id = await self.repo.withdraw(
                     client_id=client_id, currency_code=recv_code_new, amount=(-d_recv),
                     comment="edit recv delta-", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:delta-:recv",
                 )
             else:
-                await self.repo.deposit(
+                tx_id = await self.repo.deposit(
                     client_id=client_id, currency_code=recv_code_new, amount=(-d_recv),
                     comment="edit recv delta-", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:delta-:recv",
                 )
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=recv_code_new,
+                    direction="OUT",
+                )
+            )
 
         if d_pay > 0:
-            await apply_pay(d_pay, "delta+")
+            await apply_pay(d_pay, "delta+", direction="OUT")
         elif d_pay < 0:
             if pay_is_withdraw:
-                await self.repo.deposit(
+                tx_id = await self.repo.deposit(
                     client_id=client_id, currency_code=pay_code_new, amount=(-d_pay),
                     comment="edit pay delta-", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:delta-:pay",
                 )
             else:
-                await self.repo.withdraw(
+                tx_id = await self.repo.withdraw(
                     client_id=client_id, currency_code=pay_code_new, amount=(-d_pay),
                     comment="edit pay delta-", source="exchange_edit",
                     idempotency_key=f"{idem_prefix}:delta-:pay",
                 )
+            movements.append(
+                AppliedExchangeMovement(
+                    transaction_id=int(tx_id),
+                    currency_code=pay_code_new,
+                    direction="IN",
+                )
+            )
 
-        return True
+        return movements
 
     async def apply_cancel(
         self,

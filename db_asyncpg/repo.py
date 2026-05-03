@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from db_asyncpg.ports import (
+    ActCounterRepositoryPort,
     ClientRepositoryPort,
     ExchangeRequestRepositoryPort,
     LiveMessageRepositoryPort,
@@ -12,6 +13,7 @@ from db_asyncpg.ports import (
     WalletRepositoryPort,
 )
 from db_asyncpg.repositories import (
+    ActCounterRepo,
     ClientsRepo,
     ExchangeRequestsRepo,
     LiveMessagesRepo,
@@ -24,6 +26,7 @@ from db_asyncpg.repositories import (
 
 
 class Repo(
+    ActCounterRepo,
     ClientsRepo,
     ExchangeRequestsRepo,
     TransactionsRepo,
@@ -32,6 +35,7 @@ class Repo(
     RequestScheduleRepo,
     RateOrdersRepo,
     LiveMessagesRepo,
+    ActCounterRepositoryPort,
     ClientRepositoryPort,
     WalletRepositoryPort,
     TransactionRepositoryPort,

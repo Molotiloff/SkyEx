@@ -1,4 +1,5 @@
 from .base import BaseRepo
+from .act_counter import ActCounterRepo
 from .clients import ClientsRepo
 from .exchange_requests import ExchangeRequestsRepo
 from .live_messages import LiveMessagesRepo
@@ -9,6 +10,7 @@ from .settings import SettingsRepo
 from .transactions import TransactionsRepo
 
 __all__ = [
+    "ActCounterRepo",
     "BaseRepo",
     "ClientsRepo",
     "ExchangeRequestsRepo",

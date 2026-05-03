@@ -191,6 +191,49 @@ class LiveMessageRepositoryPort(Protocol):
     async def list_live_messages(self, *, message_key: str | None = None) -> list[dict[str, Any]]: ...
 
 
+class ActCounterRepositoryPort(Protocol):
+    async def create_act_checkpoint(
+        self,
+        *,
+        chat_id: int,
+        baseline_amount: Any,
+        set_by_user_id: int | None = None,
+        comment: str | None = None,
+    ) -> int: ...
+
+    async def get_latest_act_checkpoint(self, *, chat_id: int) -> dict[str, Any] | None: ...
+
+    async def link_act_request_transaction(
+        self,
+        *,
+        req_id: str,
+        request_chat_id: int,
+        request_message_id: int,
+        transaction_id: int,
+        direction: str,
+        table_req_id: str | None = None,
+        status: str = "ACTIVE",
+    ) -> int: ...
+
+    async def cancel_act_request_transactions(self, *, req_id: str) -> int: ...
+
+    async def get_act_request_transaction(self, *, req_id: str) -> list[dict[str, Any]]: ...
+
+    async def list_active_act_request_transactions(
+        self,
+        *,
+        request_chat_id: int,
+        since: datetime | date | str | None = None,
+    ) -> list[dict[str, Any]]: ...
+
+    async def get_act_request_transactions_summary(
+        self,
+        *,
+        request_chat_id: int,
+        since: datetime | date | str | None = None,
+    ) -> dict[str, Any]: ...
+
+
 class ManagerRepositoryPort(Protocol):
     async def list_managers(self) -> list[dict]: ...
 
@@ -272,6 +315,16 @@ class ManagedClientWalletScheduleRepositoryPort(
 
 class ClientTransferRepositoryPort(
     ClientWalletTransactionRepositoryPort,
+    Protocol,
+):
+    pass
+
+
+class ActExchangeRepositoryPort(
+    ActCounterRepositoryPort,
+    ExchangeRequestRepositoryPort,
+    TransactionRepositoryPort,
+    WalletRepositoryPort,
     Protocol,
 ):
     pass

@@ -8,6 +8,7 @@ from aiogram import Bot, Dispatcher
 
 from config import Config
 from db_asyncpg.ports import (
+    ActCounterRepositoryPort,
     ClientRepositoryPort,
     ClientWalletRepositoryPort,
     ClientWalletScheduleRepositoryPort,
@@ -25,6 +26,7 @@ from db_asyncpg.ports import (
 from db_asyncpg.repo import Repo
 from handlers import (
     AcceptShortHandler,
+    ActHandler,
     AdminRequestHandler,
     AMLHandler,
     CashRequestsHandler,
@@ -55,6 +57,7 @@ from services.admin_client import (
     NonZeroWalletQueryService,
     UsdtWalletService,
 )
+from services.act_counter import ActCounterService
 from services.client_balances import (
     ClientBalancesFilterService,
     ClientBalancesQueryService,
@@ -105,6 +108,7 @@ def setup_handlers(
     rate_order_repo = cast(RateOrderRepositoryPort, repo)
     exchange_request_repo = cast(ExchangeRequestRepositoryPort, repo)
     exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
+    act_counter_repo = cast(ActCounterRepositoryPort, repo)
 
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map
@@ -114,6 +118,7 @@ def setup_handlers(
     ignore_chat_ids = set(ignore_chat_ids or [])
 
     services = AppServices()
+    act_counter_service = ActCounterService(act_counter_repo)
 
     managers_handler = ManagersHandler(ManagerAdminService(manager_repo), config.admin_chat_id)
     dp.include_router(managers_handler.router)
@@ -195,7 +200,7 @@ def setup_handlers(
         repo,
         admin_chat_ids=admin_chat_list,
         admin_user_ids=admin_user_list,
-        ignore_chat_ids=ignore_chat_ids,
+        ignore_chat_ids=None,
         city_cash_chat_ids=city_cash_chat_ids,
     )
 
@@ -204,9 +209,20 @@ def setup_handlers(
         admin_chat_ids=admin_chat_list,
         admin_user_ids=admin_user_list,
         request_chat_id=request_chat_id,
-        ignore_chat_ids=ignore_chat_ids,
+        ignore_chat_ids=None,
+        act_counter_service=act_counter_service,
     )
     dp.include_router(accept_short_handler.router)
+
+    if request_chat_id:
+        act_handler = ActHandler(
+            repo=manager_repo,
+            act_counter_service=act_counter_service,
+            request_chat_ids=[request_chat_id],
+            admin_chat_ids=admin_chat_list,
+            admin_user_ids=admin_user_list,
+        )
+        dp.include_router(act_handler.router)
 
     cash_requests_handler = CashRequestsHandler(
         repo,

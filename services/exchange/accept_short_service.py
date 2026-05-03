@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
+from services.act_counter import ActCounterService
 from utils.calc import CalcError, evaluate
 from utils.exchange_base import AbstractExchangeHandler
 
@@ -55,8 +56,17 @@ class AcceptShortService(AbstractExchangeHandler):
         flags=re.IGNORECASE | re.UNICODE,
     )
 
-    def __init__(self, repo: ExchangeWorkflowRepositoryPort, request_chat_id: int | None = None) -> None:
-        super().__init__(repo, request_chat_id=request_chat_id)
+    def __init__(
+        self,
+        repo: ExchangeWorkflowRepositoryPort,
+        request_chat_id: int | None = None,
+        act_counter_service: ActCounterService | None = None,
+    ) -> None:
+        super().__init__(
+            repo,
+            request_chat_id=request_chat_id,
+            act_counter_service=act_counter_service,
+        )
 
     @staticmethod
     def _fmt_rate(value: Decimal) -> str:

@@ -98,9 +98,9 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
             changed_at=changed_at,
         )
 
-        did_recalc = False
+        applied_movements = []
         try:
-            did_recalc = await self.balance_service.apply_edit_delta(
+            applied_movements = await self.balance_service.apply_edit_delta(
                 client_id=client_id,
                 old_request_text=reply_msg.text or "",
                 recv_code_new=recv_code,
@@ -184,6 +184,19 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                         table_out_amount=pay_amount,
                         table_rate=rate_str.replace(",", "."),
                     )
+                    if self.act_counter_service and applied_movements:
+                        await self.act_counter_service.register_exchange_movements(
+                            req_id=str(edit_req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(request_chat_id),
+                            request_message_id=int(request_message_id),
+                            movements=applied_movements,
+                        )
+                    if self.act_counter_service:
+                        await self._notify_act_current_amount(
+                            bot=message.bot,
+                            request_chat_id=int(request_chat_id),
+                        )
                 else:
                     sent_request = await post_request_message(
                         message.bot,
@@ -220,6 +233,19 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                         table_out_amount=pay_amount,
                         table_rate=rate_str.replace(",", "."),
                     )
+                    if self.act_counter_service and applied_movements:
+                        await self.act_counter_service.register_exchange_movements(
+                            req_id=str(edit_req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(sent_request.chat.id),
+                            request_message_id=int(sent_request.message_id),
+                            movements=applied_movements,
+                        )
+                    if self.act_counter_service:
+                        await self._notify_act_current_amount(
+                            bot=message.bot,
+                            request_chat_id=int(sent_request.chat.id),
+                        )
                 await post_request_message(
                     message.bot,
                     self.request_chat_id,
@@ -238,6 +264,4 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
             safe_rows = html.escape(compact)
             await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
-        if not did_recalc:
-            await message.answer("ℹ️ Чтобы автоматически пересчитать баланс, отвечайте на сообщение БОТА с заявкой.")
         return True

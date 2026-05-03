@@ -95,7 +95,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
             pay_comment = pay_amount_expr if not note else f"{pay_amount_expr} | {note}"
 
             try:
-                await self.balance_service.apply_create(
+                create_result = await self.balance_service.apply_create(
                     client_id=client_id,
                     recv_code=recv_code,
                     recv_amount=recv_amount,
@@ -183,6 +183,18 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                         table_rate=rate,
                         status="active",
                     )
+                    if self.act_counter_service:
+                        await self.act_counter_service.register_exchange_movements(
+                            req_id=str(req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(sent_request.chat.id),
+                            request_message_id=int(sent_request.message_id),
+                            movements=create_result.movements,
+                        )
+                        await self._notify_act_current_amount(
+                            bot=message.bot,
+                            request_chat_id=int(sent_request.chat.id),
+                        )
                 except Exception:
                     log.exception("Failed to post or persist exchange request chat copy %s", req_id)
 
