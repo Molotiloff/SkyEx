@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 
 from config import Config
 from db_asyncpg.ports import (
-    ActCounterRepositoryPort,
+    ActCounterLedgerRepositoryPort,
     ClientRepositoryPort,
     ClientWalletRepositoryPort,
     ClientWalletScheduleRepositoryPort,
@@ -108,7 +108,7 @@ def setup_handlers(
     rate_order_repo = cast(RateOrderRepositoryPort, repo)
     exchange_request_repo = cast(ExchangeRequestRepositoryPort, repo)
     exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
-    act_counter_repo = cast(ActCounterRepositoryPort, repo)
+    act_counter_repo = cast(ActCounterLedgerRepositoryPort, repo)
 
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map

@@ -37,10 +37,12 @@ class _ExchangeUseCaseBase:
         if not self.act_counter_service or not request_chat_id:
             return
         try:
-            report = await self.act_counter_service.build_report(request_chat_id=int(request_chat_id))
+            current_amount = await self.act_counter_service.get_current_amount(
+                request_chat_id=int(request_chat_id),
+            )
             await bot.send_message(
                 chat_id=int(request_chat_id),
-                text=self.act_text_builder.build_current_amount_text(report),
+                text=self.act_text_builder.build_current_amount_text(current_amount),
                 parse_mode="HTML",
             )
         except Exception:

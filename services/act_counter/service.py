@@ -2,34 +2,73 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from db_asyncpg.ports import ActCounterRepositoryPort
-from services.act_counter.models import (
-    ActCounterReport,
-    ActMovementLine,
-    AppliedExchangeMovement,
-)
+from db_asyncpg.ports import ActCounterLedgerRepositoryPort
+from services.act_counter.models import AppliedExchangeMovement
 
 
 class ActCounterService:
     USDT_CODE = "USDT"
+    USDT_PRECISION = 3
 
-    def __init__(self, repo: ActCounterRepositoryPort) -> None:
+    def __init__(self, repo: ActCounterLedgerRepositoryPort) -> None:
         self.repo = repo
 
-    async def set_checkpoint(
+    async def get_current_amount(
         self,
         *,
-        chat_id: int,
-        baseline_amount: Decimal,
-        set_by_user_id: int | None = None,
-        comment: str | None = None,
-    ) -> int:
-        return await self.repo.create_act_checkpoint(
-            chat_id=chat_id,
-            baseline_amount=baseline_amount,
-            set_by_user_id=set_by_user_id,
-            comment=comment,
+        request_chat_id: int,
+        chat_name: str | None = None,
+    ) -> Decimal:
+        client_id = await self._ensure_request_chat_client(
+            request_chat_id=request_chat_id,
+            chat_name=chat_name,
         )
+        rows = await self.repo.snapshot_wallet(client_id)
+        for row in rows:
+            if str(row["currency_code"]).upper() == self.USDT_CODE:
+                return Decimal(str(row["balance"]))
+        return Decimal("0")
+
+    async def set_current_amount(
+        self,
+        *,
+        request_chat_id: int,
+        chat_name: str | None,
+        amount: Decimal,
+        comment: str | None = None,
+        idempotency_key: str | None = None,
+    ) -> Decimal:
+        client_id = await self._ensure_request_chat_client(
+            request_chat_id=request_chat_id,
+            chat_name=chat_name,
+        )
+        current_amount = await self.get_current_amount(
+            request_chat_id=request_chat_id,
+            chat_name=chat_name,
+        )
+        delta = amount - current_amount
+        if delta == 0:
+            return current_amount
+
+        if delta > 0:
+            await self.repo.deposit(
+                client_id=client_id,
+                currency_code=self.USDT_CODE,
+                amount=delta,
+                comment=comment or "act",
+                source="act_set",
+                idempotency_key=idempotency_key,
+            )
+        else:
+            await self.repo.withdraw(
+                client_id=client_id,
+                currency_code=self.USDT_CODE,
+                amount=abs(delta),
+                comment=comment or "act",
+                source="act_set",
+                idempotency_key=idempotency_key,
+            )
+        return amount
 
     async def register_exchange_movements(
         self,
@@ -53,52 +92,101 @@ class ActCounterService:
                 status="ACTIVE",
             )
 
+    async def apply_request_wallet_movements(
+        self,
+        *,
+        req_id: str,
+        request_chat_id: int,
+        request_message_id: int,
+        movements: list[AppliedExchangeMovement],
+        table_req_id: str | None = None,
+        chat_name: str | None = None,
+    ) -> None:
+        client_id = await self._ensure_request_chat_client(
+            request_chat_id=request_chat_id,
+            chat_name=chat_name,
+        )
+        for movement in movements:
+            if movement.currency_code.upper() != self.USDT_CODE:
+                continue
+            idem = f"actwallet:{request_chat_id}:{req_id}:{movement.transaction_id}"
+            comment = f"ACT req {table_req_id or req_id} {movement.direction}"
+            if movement.direction == "IN":
+                await self.repo.deposit(
+                    client_id=client_id,
+                    currency_code=self.USDT_CODE,
+                    amount=movement.amount,
+                    comment=comment,
+                    source="act_exchange",
+                    idempotency_key=idem,
+                )
+            else:
+                await self.repo.withdraw(
+                    client_id=client_id,
+                    currency_code=self.USDT_CODE,
+                    amount=movement.amount,
+                    comment=comment,
+                    source="act_exchange",
+                    idempotency_key=idem,
+                )
+
+    async def revert_request_wallet_movements(
+        self,
+        *,
+        req_id: str,
+        request_chat_id: int,
+        chat_name: str | None = None,
+    ) -> None:
+        rows = await self.repo.get_act_request_transaction(req_id=req_id)
+        if not rows:
+            return
+        client_id = await self._ensure_request_chat_client(
+            request_chat_id=request_chat_id,
+            chat_name=chat_name,
+        )
+        for row in rows:
+            if str(row.get("status") or "").upper() == "CANCELED":
+                continue
+            if str(row.get("currency_code") or "").upper() != self.USDT_CODE:
+                continue
+            amount = abs(Decimal(str(row["amount"])))
+            direction = str(row["direction"]).upper()
+            tx_id = int(row["transaction_id"])
+            idem = f"actwallet:cancel:{request_chat_id}:{req_id}:{tx_id}"
+            comment = f"ACT cancel req {row.get('table_req_id') or req_id} {direction}"
+            if direction == "IN":
+                await self.repo.withdraw(
+                    client_id=client_id,
+                    currency_code=self.USDT_CODE,
+                    amount=amount,
+                    comment=comment,
+                    source="act_exchange_cancel",
+                    idempotency_key=idem,
+                )
+            else:
+                await self.repo.deposit(
+                    client_id=client_id,
+                    currency_code=self.USDT_CODE,
+                    amount=amount,
+                    comment=comment,
+                    source="act_exchange_cancel",
+                    idempotency_key=idem,
+                )
+
     async def cancel_request(self, *, req_id: str) -> int:
         return await self.repo.cancel_act_request_transactions(req_id=req_id)
 
-    async def build_report(self, *, request_chat_id: int) -> ActCounterReport:
-        return await self._build_report(request_chat_id=request_chat_id, all_time=False)
-
-    async def build_all_time_report(self, *, request_chat_id: int) -> ActCounterReport:
-        return await self._build_report(request_chat_id=request_chat_id, all_time=True)
-
-    async def _build_report(self, *, request_chat_id: int, all_time: bool) -> ActCounterReport:
-        checkpoint = await self.repo.get_latest_act_checkpoint(chat_id=request_chat_id)
-        baseline_amount = Decimal(str(checkpoint["baseline_amount"])) if checkpoint else Decimal("0")
-        baseline_at = checkpoint["created_at"] if checkpoint else None
-        since = None if all_time else (baseline_at if baseline_at is not None else None)
-
-        summary = await self.repo.get_act_request_transactions_summary(
-            request_chat_id=request_chat_id,
-            since=since,
+    async def _ensure_request_chat_client(
+        self,
+        *,
+        request_chat_id: int,
+        chat_name: str | None = None,
+    ) -> int:
+        client_id = await self.repo.ensure_client(
+            chat_id=int(request_chat_id),
+            name=(chat_name or f"ACT {request_chat_id}"),
         )
-        rows = await self.repo.list_active_act_request_transactions(
-            request_chat_id=request_chat_id,
-            since=since,
-        )
-
-        total_in = Decimal(str(summary.get("total_in") or 0))
-        total_out = Decimal(str(summary.get("total_out") or 0))
-        expected_amount = baseline_amount + total_in - total_out
-
-        movements = [
-            ActMovementLine(
-                req_id=str(row["req_id"]),
-                table_req_id=(str(row["table_req_id"]) if row.get("table_req_id") is not None else None),
-                transaction_id=int(row["transaction_id"]),
-                direction=str(row["direction"]),
-                amount=abs(Decimal(str(row["amount"]))),
-                txn_at=row["txn_at"],
-            )
-            for row in rows
-        ]
-
-        return ActCounterReport(
-            baseline_amount=baseline_amount,
-            baseline_at=baseline_at,
-            total_in=total_in,
-            total_out=total_out,
-            expected_amount=expected_amount,
-            movement_count=int(summary.get("movement_count") or 0),
-            movements=movements,
-        )
+        rows = await self.repo.snapshot_wallet(client_id)
+        if not any(str(row["currency_code"]).upper() == self.USDT_CODE for row in rows):
+            await self.repo.add_currency(client_id, self.USDT_CODE, self.USDT_PRECISION)
+        return client_id

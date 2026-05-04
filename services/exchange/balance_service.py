@@ -109,11 +109,13 @@ class ExchangeBalanceService:
                     transaction_id=int(recv_tx_id),
                     currency_code=recv_code,
                     direction="IN",
+                    amount=recv_amount,
                 ),
                 AppliedExchangeMovement(
                     transaction_id=int(pay_tx_id),
                     currency_code=pay_code,
                     direction="OUT",
+                    amount=pay_amount,
                 ),
             ]
         )
@@ -166,6 +168,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=recv_code_new,
                     direction=direction,
+                    amount=amount,
                 )
             )
 
@@ -187,6 +190,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=pay_code_new,
                     direction=direction,
+                    amount=amount,
                 )
             )
 
@@ -208,6 +212,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=old_recv_code,
                     direction="OUT",
+                    amount=old_recv_amt,
                 )
             )
             if pay_is_withdraw:
@@ -227,6 +232,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=old_pay_code,
                     direction="IN",
+                    amount=old_pay_amt,
                 )
             )
             await apply_recv(recv_amount_new, "apply", direction="IN")
@@ -256,6 +262,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=recv_code_new,
                     direction="OUT",
+                    amount=(-d_recv),
                 )
             )
 
@@ -279,6 +286,7 @@ class ExchangeBalanceService:
                     transaction_id=int(tx_id),
                     currency_code=pay_code_new,
                     direction="IN",
+                    amount=(-d_pay),
                 )
             )
 

@@ -1,33 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any
-
 from db_asyncpg.pool import get_pool
 from db_asyncpg.repositories.base import BaseRepo
 
 
 class ActCounterRepo(BaseRepo):
-    async def _ensure_act_checkpoints_table(self, con) -> None:
-        await con.execute(
-            """
-            CREATE TABLE IF NOT EXISTS act_checkpoints (
-                id BIGSERIAL PRIMARY KEY,
-                chat_id BIGINT NOT NULL,
-                baseline_amount NUMERIC(38,8) NOT NULL,
-                set_by_user_id BIGINT,
-                comment TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-        await con.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_act_checkpoints_chat_created_at
-            ON act_checkpoints(chat_id, created_at DESC, id DESC)
-            """
-        )
-
     async def _ensure_act_request_transactions_table(self, con) -> None:
         await con.execute(
             """
@@ -69,53 +46,6 @@ class ActCounterRepo(BaseRepo):
             ON act_request_transactions(table_req_id)
             """
         )
-
-    async def create_act_checkpoint(
-        self,
-        *,
-        chat_id: int,
-        baseline_amount: Any,
-        set_by_user_id: int | None = None,
-        comment: str | None = None,
-    ) -> int:
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await self._ensure_act_checkpoints_table(con)
-                row = await con.fetchrow(
-                    """
-                    INSERT INTO act_checkpoints (
-                        chat_id,
-                        baseline_amount,
-                        set_by_user_id,
-                        comment
-                    )
-                    VALUES ($1, $2, $3, $4)
-                    RETURNING id
-                    """,
-                    int(chat_id),
-                    baseline_amount,
-                    int(set_by_user_id) if set_by_user_id is not None else None,
-                    comment,
-                )
-                return int(row["id"])
-
-    async def get_latest_act_checkpoint(self, *, chat_id: int) -> dict[str, Any] | None:
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await self._ensure_act_checkpoints_table(con)
-                row = await con.fetchrow(
-                    """
-                    SELECT id, chat_id, baseline_amount, set_by_user_id, comment, created_at
-                    FROM act_checkpoints
-                    WHERE chat_id = $1
-                    ORDER BY created_at DESC, id DESC
-                    LIMIT 1
-                    """,
-                    int(chat_id),
-                )
-                return dict(row) if row else None
 
     async def link_act_request_transaction(
         self,
@@ -214,109 +144,3 @@ class ActCounterRepo(BaseRepo):
                     str(req_id),
                 )
                 return [dict(row) for row in rows]
-
-    async def list_active_act_request_transactions(
-        self,
-        *,
-        request_chat_id: int,
-        since: datetime | date | str | None = None,
-    ) -> list[dict[str, Any]]:
-        since_dt = self._normalize_dt(since)
-
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await self._ensure_act_request_transactions_table(con)
-                if since_dt is None:
-                    rows = await con.fetch(
-                        """
-                        SELECT
-                            art.*,
-                            t.client_id,
-                            t.account_id,
-                            t.txn_at,
-                            t.amount,
-                            t.balance_after,
-                            t.comment,
-                            t.source,
-                            a.currency_code,
-                            a.precision
-                        FROM act_request_transactions art
-                        JOIN transactions t ON t.id = art.transaction_id
-                        JOIN client_accounts a ON a.id = t.account_id
-                        WHERE art.request_chat_id = $1
-                          AND art.status = 'ACTIVE'
-                        ORDER BY t.txn_at ASC, art.id ASC
-                        """,
-                        int(request_chat_id),
-                    )
-                else:
-                    rows = await con.fetch(
-                        """
-                        SELECT
-                            art.*,
-                            t.client_id,
-                            t.account_id,
-                            t.txn_at,
-                            t.amount,
-                            t.balance_after,
-                            t.comment,
-                            t.source,
-                            a.currency_code,
-                            a.precision
-                        FROM act_request_transactions art
-                        JOIN transactions t ON t.id = art.transaction_id
-                        JOIN client_accounts a ON a.id = t.account_id
-                        WHERE art.request_chat_id = $1
-                          AND art.status = 'ACTIVE'
-                          AND t.txn_at >= $2
-                        ORDER BY t.txn_at ASC, art.id ASC
-                        """,
-                        int(request_chat_id),
-                        since_dt,
-                    )
-                return [dict(row) for row in rows]
-
-    async def get_act_request_transactions_summary(
-        self,
-        *,
-        request_chat_id: int,
-        since: datetime | date | str | None = None,
-    ) -> dict[str, Any]:
-        since_dt = self._normalize_dt(since)
-
-        pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                await self._ensure_act_request_transactions_table(con)
-                if since_dt is None:
-                    row = await con.fetchrow(
-                        """
-                        SELECT
-                            COALESCE(SUM(CASE WHEN art.direction = 'IN'  THEN ABS(t.amount) ELSE 0 END), 0) AS total_in,
-                            COALESCE(SUM(CASE WHEN art.direction = 'OUT' THEN ABS(t.amount) ELSE 0 END), 0) AS total_out,
-                            COUNT(*) AS movement_count
-                        FROM act_request_transactions art
-                        JOIN transactions t ON t.id = art.transaction_id
-                        WHERE art.request_chat_id = $1
-                          AND art.status = 'ACTIVE'
-                        """,
-                        int(request_chat_id),
-                    )
-                else:
-                    row = await con.fetchrow(
-                        """
-                        SELECT
-                            COALESCE(SUM(CASE WHEN art.direction = 'IN'  THEN ABS(t.amount) ELSE 0 END), 0) AS total_in,
-                            COALESCE(SUM(CASE WHEN art.direction = 'OUT' THEN ABS(t.amount) ELSE 0 END), 0) AS total_out,
-                            COUNT(*) AS movement_count
-                        FROM act_request_transactions art
-                        JOIN transactions t ON t.id = art.transaction_id
-                        WHERE art.request_chat_id = $1
-                          AND art.status = 'ACTIVE'
-                          AND t.txn_at >= $2
-                        """,
-                        int(request_chat_id),
-                        since_dt,
-                    )
-                return dict(row) if row else {"total_in": 0, "total_out": 0, "movement_count": 0}

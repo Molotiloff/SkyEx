@@ -138,11 +138,21 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
 
         if self.act_counter_service:
             try:
-                await self.act_counter_service.cancel_request(req_id=str(req_id_s))
+                act_chat_id = None
                 if request_copy is not None:
+                    act_chat_id = int(request_copy[0])
+                elif meta and meta.get("request_chat_id"):
+                    act_chat_id = int(meta["request_chat_id"])
+                if act_chat_id is not None:
+                    await self.act_counter_service.revert_request_wallet_movements(
+                        req_id=str(req_id_s),
+                        request_chat_id=act_chat_id,
+                    )
+                await self.act_counter_service.cancel_request(req_id=str(req_id_s))
+                if act_chat_id is not None:
                     await self._notify_act_current_amount(
                         bot=cq.bot,
-                        request_chat_id=int(request_copy[0]),
+                        request_chat_id=act_chat_id,
                     )
             except Exception:
                 log.exception("Failed to cancel ACT movements for exchange request %s", req_id_s)

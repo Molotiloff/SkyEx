@@ -192,17 +192,6 @@ class LiveMessageRepositoryPort(Protocol):
 
 
 class ActCounterRepositoryPort(Protocol):
-    async def create_act_checkpoint(
-        self,
-        *,
-        chat_id: int,
-        baseline_amount: Any,
-        set_by_user_id: int | None = None,
-        comment: str | None = None,
-    ) -> int: ...
-
-    async def get_latest_act_checkpoint(self, *, chat_id: int) -> dict[str, Any] | None: ...
-
     async def link_act_request_transaction(
         self,
         *,
@@ -218,20 +207,6 @@ class ActCounterRepositoryPort(Protocol):
     async def cancel_act_request_transactions(self, *, req_id: str) -> int: ...
 
     async def get_act_request_transaction(self, *, req_id: str) -> list[dict[str, Any]]: ...
-
-    async def list_active_act_request_transactions(
-        self,
-        *,
-        request_chat_id: int,
-        since: datetime | date | str | None = None,
-    ) -> list[dict[str, Any]]: ...
-
-    async def get_act_request_transactions_summary(
-        self,
-        *,
-        request_chat_id: int,
-        since: datetime | date | str | None = None,
-    ) -> dict[str, Any]: ...
 
 
 class ManagerRepositoryPort(Protocol):
@@ -320,11 +295,27 @@ class ClientTransferRepositoryPort(
     pass
 
 
+class ActCounterLedgerRepositoryPort(
+    ActCounterRepositoryPort,
+    ClientWalletTransactionRepositoryPort,
+    Protocol,
+):
+    pass
+
+
 class ActExchangeRepositoryPort(
     ActCounterRepositoryPort,
     ExchangeRequestRepositoryPort,
     TransactionRepositoryPort,
     WalletRepositoryPort,
+    Protocol,
+):
+    pass
+
+
+class ActCounterLedgerRepositoryPort(
+    ActCounterRepositoryPort,
+    ClientWalletTransactionRepositoryPort,
     Protocol,
 ):
     pass

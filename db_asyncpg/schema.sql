@@ -133,18 +133,6 @@ CREATE TABLE IF NOT EXISTS exchange_request_links (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_exchange_request_links_table_req_id
     ON exchange_request_links(table_req_id);
 
-CREATE TABLE IF NOT EXISTS act_checkpoints (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    baseline_amount NUMERIC(38,8) NOT NULL,
-    set_by_user_id BIGINT,
-    comment TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_act_checkpoints_chat_created_at
-    ON act_checkpoints(chat_id, created_at DESC, id DESC);
-
 CREATE TABLE IF NOT EXISTS act_request_transactions (
     id BIGSERIAL PRIMARY KEY,
     req_id TEXT NOT NULL,

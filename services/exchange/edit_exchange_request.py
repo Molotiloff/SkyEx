@@ -192,6 +192,13 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                             request_message_id=int(request_message_id),
                             movements=applied_movements,
                         )
+                        await self.act_counter_service.apply_request_wallet_movements(
+                            req_id=str(edit_req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(request_chat_id),
+                            request_message_id=int(request_message_id),
+                            movements=applied_movements,
+                        )
                     if self.act_counter_service:
                         await self._notify_act_current_amount(
                             bot=message.bot,
@@ -240,6 +247,14 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                             request_chat_id=int(sent_request.chat.id),
                             request_message_id=int(sent_request.message_id),
                             movements=applied_movements,
+                        )
+                        await self.act_counter_service.apply_request_wallet_movements(
+                            req_id=str(edit_req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(sent_request.chat.id),
+                            request_message_id=int(sent_request.message_id),
+                            movements=applied_movements,
+                            chat_name=getattr(sent_request.chat, "title", None),
                         )
                     if self.act_counter_service:
                         await self._notify_act_current_amount(
