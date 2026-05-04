@@ -7,7 +7,7 @@ import random
 from aiogram.types import Message
 
 from keyboards import request_keyboard
-from services.exchange.keyboards import cancel_keyboard
+from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
 from services.exchange.use_case_base import _ExchangeUseCaseBase
 from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
@@ -93,6 +93,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
             idem_pay = f"{chat_id}:{message.message_id}:pay"
             recv_comment = recv_amount_expr if not note else f"{recv_amount_expr} | {note}"
             pay_comment = pay_amount_expr if not note else f"{pay_amount_expr} | {note}"
+            is_request_chat_origin = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
 
             try:
                 create_result = await self.balance_service.apply_create(
@@ -113,11 +114,17 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                 return
 
             try:
+                client_card_text = texts.request_text if is_request_chat_origin else texts.client_text
+                client_card_kb = (
+                    request_chat_keyboard(req_id=req_id, table_req_id=table_req_id)
+                    if is_request_chat_origin
+                    else cancel_keyboard(req_id, table_req_id)
+                )
                 sent = await message.answer(
-                    texts.client_text,
+                    client_card_text,
                     parse_mode="HTML",
                     reply_to_message_id=message.message_id,
-                    reply_markup=cancel_keyboard(req_id, table_req_id),
+                    reply_markup=client_card_kb,
                 )
             except Exception:
                 sent = None
@@ -130,11 +137,25 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                         bot_msg_id=sent.message_id,
                         req_id=str(req_id),
                     )
+                    if is_request_chat_origin:
+                        req_index.remember_request_chat_copy(
+                            req_id=str(req_id),
+                            request_chat_id=sent.chat.id,
+                            request_message_id=sent.message_id,
+                            text=texts.request_text,
+                        )
+                        req_index.remember_table_req_id(
+                            req_id=str(req_id),
+                            table_req_id=str(table_req_id),
+                        )
                     await self.repo.upsert_exchange_request_link(
                         client_req_id=str(req_id),
                         table_req_id=str(table_req_id),
                         client_chat_id=sent.chat.id,
                         client_message_id=sent.message_id,
+                        request_chat_id=(sent.chat.id if is_request_chat_origin else None),
+                        request_message_id=(sent.message_id if is_request_chat_origin else None),
+                        request_text=(texts.request_text if is_request_chat_origin else None),
                         table_in_cur=recv_code,
                         table_out_cur=pay_code,
                         table_in_amount=recv_amount,
@@ -145,7 +166,23 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                 except Exception:
                     log.exception("Failed to persist exchange request client link %s", req_id)
 
-            if self.request_chat_id:
+                if is_request_chat_origin and self.act_counter_service:
+                    try:
+                        await self.act_counter_service.register_exchange_movements(
+                            req_id=str(req_id),
+                            table_req_id=str(table_req_id),
+                            request_chat_id=int(sent.chat.id),
+                            request_message_id=int(sent.message_id),
+                            movements=create_result.movements,
+                        )
+                        await self._notify_act_current_amount(
+                            bot=message.bot,
+                            request_chat_id=int(sent.chat.id),
+                        )
+                    except Exception:
+                        log.exception("Failed to update ACT for in-request-chat exchange request %s", req_id)
+
+            if self.request_chat_id and not is_request_chat_origin:
                 try:
                     sent_request = await post_request_message(
                         bot=message.bot,

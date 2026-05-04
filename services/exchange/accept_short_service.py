@@ -68,6 +68,9 @@ class AcceptShortService(AbstractExchangeHandler):
             act_counter_service=act_counter_service,
         )
 
+    def _is_request_chat_origin(self, chat_id: int) -> bool:
+        return bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
+
     @staticmethod
     def _fmt_rate(value: Decimal) -> str:
         normalized = f"{value.normalize():f}"
@@ -177,6 +180,10 @@ class AcceptShortService(AbstractExchangeHandler):
             await message.answer(self.help_text())
             return
 
+        is_request_chat_origin = self._is_request_chat_origin(message.chat.id)
+        recv_is_deposit = is_request_chat_origin
+        pay_is_withdraw = is_request_chat_origin
+
         handled = await self.try_edit_request(
             message=message,
             recv_code=parsed.recv_code,
@@ -187,8 +194,8 @@ class AcceptShortService(AbstractExchangeHandler):
             pay_prec=parsed.pay_prec,
             rate_str=parsed.rate_str,
             user_note=parsed.user_note,
-            recv_is_deposit=False,
-            pay_is_withdraw=False,
+            recv_is_deposit=recv_is_deposit,
+            pay_is_withdraw=pay_is_withdraw,
         )
         if handled:
             return
@@ -199,14 +206,16 @@ class AcceptShortService(AbstractExchangeHandler):
             recv_amount_expr=parsed.recv_amount_expr,
             pay_code=parsed.pay_code,
             pay_amount_expr=parsed.pay_amount_expr,
-            recv_is_deposit=False,
-            pay_is_withdraw=False,
+            recv_is_deposit=recv_is_deposit,
+            pay_is_withdraw=pay_is_withdraw,
             note=parsed.user_note,
         )
 
     async def handle_cancel(self, cq: CallbackQuery) -> None:
+        chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
+        is_request_chat_origin = self._is_request_chat_origin(chat_id)
         await self.handle_cancel_callback(
             cq,
-            recv_is_deposit=False,
-            pay_is_withdraw=False,
+            recv_is_deposit=is_request_chat_origin,
+            pay_is_withdraw=is_request_chat_origin,
         )

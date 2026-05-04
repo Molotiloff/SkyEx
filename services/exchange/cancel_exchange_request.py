@@ -84,16 +84,6 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
             await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
             return
 
-        try:
-            cancelled_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-            await msg.edit_text(f"{msg.text}\n----\nОтмена: <code>{cancelled_at}</code>", parse_mode="HTML",
-                                reply_markup=None)
-        except Exception:
-            try:
-                await msg.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-
         meta = await self._get_exchange_request_meta(req_id_s)
         table_req_id = (
             table_req_id_from_cb
@@ -106,19 +96,41 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
         request_text = req_index.get_request_chat_text(req_id_s)
         if request_text is None and meta and meta.get("request_text"):
             request_text = str(meta["request_text"])
+        single_request_chat_card = bool(
+            request_copy is not None
+            and int(chat_id) == int(request_copy[0])
+            and int(msg.message_id) == int(request_copy[1])
+        )
+
+        if not single_request_chat_card:
+            try:
+                cancelled_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+                await msg.edit_text(
+                    f"{msg.text}\n----\nОтмена: <code>{cancelled_at}</code>",
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+            except Exception:
+                try:
+                    await msg.edit_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
 
         if request_copy is not None and request_text:
             try:
                 cancelled_text = request_text
                 if not cancelled_text.startswith(CANCEL_REQUEST_PREFIX):
                     cancelled_text = f"{CANCEL_REQUEST_PREFIX}\n{cancelled_text}"
-                await cq.bot.edit_message_text(
-                    chat_id=request_copy[0],
-                    message_id=request_copy[1],
-                    text=cancelled_text,
-                    parse_mode="HTML",
-                    reply_markup=None,
-                )
+                if single_request_chat_card:
+                    await msg.edit_text(cancelled_text, parse_mode="HTML", reply_markup=None)
+                else:
+                    await cq.bot.edit_message_text(
+                        chat_id=request_copy[0],
+                        message_id=request_copy[1],
+                        text=cancelled_text,
+                        parse_mode="HTML",
+                        reply_markup=None,
+                    )
                 req_index.remember_request_chat_copy(
                     req_id=req_id_s,
                     request_chat_id=request_copy[0],

@@ -9,7 +9,7 @@ from aiogram.types import Message
 
 from keyboards import request_keyboard
 from services.exchange.card_parser import extract_created_by, extract_request_id
-from services.exchange.keyboards import cancel_keyboard
+from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
 from services.exchange.use_case_base import _ExchangeUseCaseBase
 from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
@@ -85,6 +85,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
         )
 
         changed_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        single_request_chat_card = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
         new_client_text = self.text_builder.build_client_text(
             req_id=edit_req_id,
             recv_code=recv_code,
@@ -118,19 +119,92 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
         except Exception as e:
             await message.answer(f"Не удалось пересчитать балансы: {e}")
 
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=target_bot_msg_id,
-                text=new_client_text,
-                parse_mode="HTML",
-                reply_markup=cancel_keyboard(edit_req_id, table_req_id),
+        if single_request_chat_card:
+            request_text = self.text_builder.build_request_text(
+                req_id=edit_req_id,
+                table_req_id=table_req_id,
+                client_name=chat_name,
+                recv_code=recv_code,
+                recv_amount=recv_amount,
+                recv_prec=recv_prec,
+                pay_code=pay_code,
+                pay_amount=pay_amount,
+                pay_prec=pay_prec,
+                rate=rate_str,
+                creator_name=creator_name,
+                note=user_note,
+                changed_at=changed_at,
             )
-        except Exception as e:
-            await message.answer(f"Не удалось изменить заявку: {e}")
-            return True
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=target_bot_msg_id,
+                    text=request_text,
+                    parse_mode="HTML",
+                    reply_markup=request_chat_keyboard(req_id=edit_req_id, table_req_id=table_req_id),
+                )
+            except Exception as e:
+                await message.answer(f"Не удалось изменить заявку: {e}")
+                return True
 
-        if self.request_chat_id:
+            req_index.remember_request_chat_copy(
+                req_id=str(edit_req_id),
+                request_chat_id=message.chat.id,
+                request_message_id=target_bot_msg_id,
+                text=request_text,
+            )
+            await self.repo.upsert_exchange_request_link(
+                client_req_id=str(edit_req_id),
+                table_req_id=str(table_req_id),
+                client_chat_id=message.chat.id,
+                client_message_id=target_bot_msg_id,
+                request_chat_id=message.chat.id,
+                request_message_id=target_bot_msg_id,
+                request_text=request_text,
+                table_in_cur=recv_code,
+                table_out_cur=pay_code,
+                table_in_amount=recv_amount,
+                table_out_amount=pay_amount,
+                table_rate=rate_str.replace(",", "."),
+            )
+            if self.act_counter_service and applied_movements:
+                await self.act_counter_service.register_exchange_movements(
+                    req_id=str(edit_req_id),
+                    table_req_id=str(table_req_id),
+                    request_chat_id=int(message.chat.id),
+                    request_message_id=int(target_bot_msg_id),
+                    movements=applied_movements,
+                )
+            if self.act_counter_service:
+                await self._notify_act_current_amount(
+                    bot=message.bot,
+                    request_chat_id=int(message.chat.id),
+                )
+        else:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=target_bot_msg_id,
+                    text=new_client_text,
+                    parse_mode="HTML",
+                    reply_markup=cancel_keyboard(edit_req_id, table_req_id),
+                )
+            except Exception as e:
+                await message.answer(f"Не удалось изменить заявку: {e}")
+                return True
+
+        if single_request_chat_card:
+            try:
+                await post_request_message(
+                    message.bot,
+                    message.chat.id,
+                    f"✏️ Заявка <code>{html.escape(str(edit_req_id))}</code> была изменена",
+                    reply_markup=None,
+                )
+            except Exception:
+                log.exception("Failed to post edit notification for exchange request %s", edit_req_id)
+
+        if self.request_chat_id and not single_request_chat_card:
             request_text = self.text_builder.build_request_text(
                 req_id=edit_req_id,
                 table_req_id=table_req_id,
