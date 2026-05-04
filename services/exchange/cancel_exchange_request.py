@@ -144,10 +144,11 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                 elif meta and meta.get("request_chat_id"):
                     act_chat_id = int(meta["request_chat_id"])
                 if act_chat_id is not None:
-                    await self.act_counter_service.revert_request_wallet_movements(
-                        req_id=str(req_id_s),
-                        request_chat_id=act_chat_id,
-                    )
+                    if int(chat_id) != int(act_chat_id):
+                        await self.act_counter_service.revert_request_wallet_movements(
+                            req_id=str(req_id_s),
+                            request_chat_id=act_chat_id,
+                        )
                 await self.act_counter_service.cancel_request(req_id=str(req_id_s))
                 if act_chat_id is not None:
                     await self._notify_act_current_amount(

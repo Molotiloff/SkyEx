@@ -191,14 +191,15 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                             request_message_id=int(sent_request.message_id),
                             movements=create_result.movements,
                         )
-                        await self.act_counter_service.apply_request_wallet_movements(
-                            req_id=str(req_id),
-                            table_req_id=str(table_req_id),
-                            request_chat_id=int(sent_request.chat.id),
-                            request_message_id=int(sent_request.message_id),
-                            movements=create_result.movements,
-                            chat_name=getattr(sent_request.chat, "title", None),
-                        )
+                        if int(message.chat.id) != int(sent_request.chat.id):
+                            await self.act_counter_service.apply_request_wallet_movements(
+                                req_id=str(req_id),
+                                table_req_id=str(table_req_id),
+                                request_chat_id=int(sent_request.chat.id),
+                                request_message_id=int(sent_request.message_id),
+                                movements=create_result.movements,
+                                chat_name=getattr(sent_request.chat, "title", None),
+                            )
                         await self._notify_act_current_amount(
                             bot=message.bot,
                             request_chat_id=int(sent_request.chat.id),
