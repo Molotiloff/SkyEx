@@ -94,6 +94,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
             recv_comment = recv_amount_expr if not note else f"{recv_amount_expr} | {note}"
             pay_comment = pay_amount_expr if not note else f"{pay_amount_expr} | {note}"
             is_request_chat_origin = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
+            tracked_currency_codes = {"USDT"} if is_request_chat_origin else None
 
             try:
                 create_result = await self.balance_service.apply_create(
@@ -108,6 +109,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                     pay_is_withdraw=pay_is_withdraw,
                     idem_recv=idem_recv,
                     idem_pay=idem_pay,
+                    tracked_currency_codes=tracked_currency_codes,
                 )
             except Exception as leg_err:
                 await message.answer(f"Не удалось выполнить обмен: {leg_err}")
@@ -244,14 +246,15 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                 except Exception:
                     log.exception("Failed to post or persist exchange request chat copy %s", req_id)
 
-            accounts2 = await self.repo.snapshot_wallet(client_id)
-            compact = format_wallet_compact(accounts2, only_nonzero=True)
-            if compact == "Пусто":
-                await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
-            else:
-                safe_title = html.escape(f"Средств у {chat_name}:")
-                safe_rows = html.escape(compact)
-                await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+            if not is_request_chat_origin:
+                accounts2 = await self.repo.snapshot_wallet(client_id)
+                compact = format_wallet_compact(accounts2, only_nonzero=True)
+                if compact == "Пусто":
+                    await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+                else:
+                    safe_title = html.escape(f"Средств у {chat_name}:")
+                    safe_rows = html.escape(compact)
+                    await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
         except Exception as e:
             await message.answer(f"Не удалось выполнить операцию: {e}")

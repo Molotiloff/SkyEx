@@ -52,6 +52,8 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
         chat_name = get_chat_name(msg)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
         accounts = await self.repo.snapshot_wallet(client_id)
+        single_request_chat_card = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
+        tracked_currency_codes = {"USDT"} if single_request_chat_card else None
 
         def find_account(code: str):
             return next((row for row in accounts if str(row["currency_code"]).upper() == code.upper()), None)
@@ -79,6 +81,7 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                 pay_amount=pay_amt,
                 recv_is_deposit=recv_is_deposit,
                 pay_is_withdraw=pay_is_withdraw,
+                tracked_currency_codes=tracked_currency_codes,
             )
         except Exception as e:
             await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
@@ -190,32 +193,28 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                 log.exception("Failed to post table delete prompt for exchange request %s", req_id_s)
 
         accounts2 = await self.repo.snapshot_wallet(client_id)
-        acc_recv2 = next((row for row in accounts2 if str(row["currency_code"]).upper() == recv_code.upper()), None)
-        acc_pay2 = next((row for row in accounts2 if str(row["currency_code"]).upper() == pay_code.upper()), None)
+        lines = [f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена."]
 
-        pretty_recv_op = format_amount_core(recv_amt, recv_prec)
-        pretty_pay_op = format_amount_core(pay_amt, pay_prec)
+        def _append_balance_line(*, code: str, amount: Decimal, precision: int, sign: str | None) -> None:
+            if sign is None:
+                return
+            acc = next((row for row in accounts2 if str(row["currency_code"]).upper() == code.upper()), None)
+            pretty_op = format_amount_core(amount, precision)
+            if acc:
+                bal = Decimal(str(acc["balance"]))
+                bal_text = format_amount_core(bal, int(acc["precision"]))
+            else:
+                bal_text = "—"
+            lines.extend(
+                [
+                    "",
+                    f"Операция по {code.lower()}: <code>{sign}{pretty_op} {code.lower()}</code>",
+                    f"Баланс: <code>{bal_text} {code.lower()}</code>",
+                ]
+            )
 
-        if acc_recv2:
-            recv_bal = Decimal(str(acc_recv2["balance"]))
-            recv_bal_text = format_amount_core(recv_bal, int(acc_recv2["precision"]))
-        else:
-            recv_bal_text = "—"
+        _append_balance_line(code=recv_code, amount=recv_amt, precision=recv_prec, sign=recv_op_sign)
+        _append_balance_line(code=pay_code, amount=pay_amt, precision=pay_prec, sign=pay_op_sign)
 
-        if acc_pay2:
-            pay_bal = Decimal(str(acc_pay2["balance"]))
-            pay_bal_text = format_amount_core(pay_bal, int(acc_pay2["precision"]))
-        else:
-            pay_bal_text = "—"
-
-        await cq.message.answer(
-            (
-                f"⛔️ Заявка <code>{html.escape(req_id_s)}</code> отменена.\n\n"
-                f"Операция по {recv_code.lower()}: <code>{recv_op_sign}{pretty_recv_op} {recv_code.lower()}</code>\n"
-                f"Баланс: <code>{recv_bal_text} {recv_code.lower()}</code>\n\n"
-                f"Операция по {pay_code.lower()}: <code>{pay_op_sign}{pretty_pay_op} {pay_code.lower()}</code>\n"
-                f"Баланс: <code>{pay_bal_text} {pay_code.lower()}</code>"
-            ),
-            parse_mode="HTML",
-        )
+        await cq.message.answer("\n".join(lines), parse_mode="HTML")
         await cq.answer("Заявка отменена")

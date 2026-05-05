@@ -86,6 +86,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
 
         changed_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         single_request_chat_card = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
+        tracked_currency_codes = {"USDT"} if single_request_chat_card else None
         new_client_text = self.text_builder.build_client_text(
             req_id=edit_req_id,
             recv_code=recv_code,
@@ -115,6 +116,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                 cmd_msg_id=message.message_id,
                 recv_is_deposit=recv_is_deposit,
                 pay_is_withdraw=pay_is_withdraw,
+                tracked_currency_codes=tracked_currency_codes,
             )
         except Exception as e:
             await message.answer(f"Не удалось пересчитать балансы: {e}")
@@ -346,13 +348,14 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
             except Exception:
                 log.exception("Failed to update request chat copy for edited exchange request %s", edit_req_id)
 
-        rows = await self.repo.snapshot_wallet(client_id)
-        compact = format_wallet_compact(rows, only_nonzero=True)
-        if compact == "Пусто":
-            await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
-        else:
-            safe_title = html.escape(f"Средств у {chat_name}:")
-            safe_rows = html.escape(compact)
-            await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
+        if not single_request_chat_card:
+            rows = await self.repo.snapshot_wallet(client_id)
+            compact = format_wallet_compact(rows, only_nonzero=True)
+            if compact == "Пусто":
+                await message.answer("Все счета нулевые. Посмотреть всё: /кошелек")
+            else:
+                safe_title = html.escape(f"Средств у {chat_name}:")
+                safe_rows = html.escape(compact)
+                await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
         return True
