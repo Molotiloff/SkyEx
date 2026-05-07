@@ -105,7 +105,15 @@ def _coerce_num(x: Union[str, int, float, Decimal]) -> str:
 
 
 def _format_dt(value: Union[str, datetime]) -> str:
-    return value.strftime("%d.%m.%Y %H:%M:%S") if isinstance(value, datetime) else str(value)
+    if isinstance(value, datetime):
+        return value.strftime("%d.%m.%Y")
+    raw = str(value).strip()
+    if not raw:
+        return raw
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%d.%m.%Y")
+    except Exception:
+        return raw.split(" ", 1)[0]
 
 
 def _find_next_row(service, sid: str, sheet: str) -> int:
