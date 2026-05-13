@@ -50,6 +50,10 @@ class BotApp:
             await self.services.aml_queue_service.start()
             logging.info("AML queue service started")
 
+        if self.services.payment_watch_poller:
+            await self.services.payment_watch_poller.start()
+            logging.info("Payment watch poller started")
+
         if self.services.orderbook_service:
             await self.services.orderbook_service.restore_live_message(
                 admin_chat_id=self.config.admin_chat_id,
@@ -69,6 +73,10 @@ class BotApp:
         if self.services.aml_queue_service:
             await self.services.aml_queue_service.stop()
             logging.info("AML queue service stopped")
+
+        if self.services.payment_watch_poller:
+            await self.services.payment_watch_poller.stop()
+            logging.info("Payment watch poller stopped")
 
         if self.services.market_ws_service:
             await self.services.market_ws_service.stop()

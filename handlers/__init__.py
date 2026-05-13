@@ -13,6 +13,7 @@ from .grinex_book import GrinexBookHandler
 from .managers import ManagersHandler
 from .nonzero import NonZeroHandler
 from .office_cards import OfficeCard, OfficeCardsHandler
+from .payment_watch import PaymentWatchHandler
 from .rate_order import RateOrderHandler
 from .request_table_delete import get_table_delete_router
 from .request_table_done import get_table_done_router
@@ -37,6 +38,7 @@ __all__ = [
     "NonZeroHandler",
     "OfficeCard",
     "OfficeCardsHandler",
+    "PaymentWatchHandler",
     "RateOrderHandler",
     "StartHandler",
     "UsdtWalletHandler",

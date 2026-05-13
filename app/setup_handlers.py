@@ -19,6 +19,7 @@ from db_asyncpg.ports import (
     ManagedClientWalletScheduleRepositoryPort,
     ManagedClientWalletTransactionRepositoryPort,
     ManagerRepositoryPort,
+    PaymentWatchRepositoryPort,
     RateOrderRepositoryPort,
     SettingsRepositoryPort,
     WalletRepositoryPort,
@@ -37,6 +38,7 @@ from handlers import (
     ManagersHandler,
     NonZeroHandler,
     OfficeCardsHandler,
+    PaymentWatchHandler,
     RateOrderHandler,
     StartHandler,
     UsdtWalletHandler,
@@ -65,6 +67,12 @@ from services.client_balances import (
     DailyBalancesReportService,
 )
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
+from services.payment_watch import (
+    PaymentWatchPoller,
+    PaymentWatchService,
+    TronscanGateway,
+    TronscanSettings,
+)
 from services.rate_order import (
     OrderbookService,
     RapiraWsService,
@@ -82,6 +90,7 @@ class AppServices:
     rate_order_service: RateOrderService | None = None
     aml_service: AMLService | None = None
     aml_queue_service: AMLQueueService | None = None
+    payment_watch_poller: PaymentWatchPoller | None = None
 
 
 def setup_handlers(
@@ -109,6 +118,7 @@ def setup_handlers(
     exchange_request_repo = cast(ExchangeRequestRepositoryPort, repo)
     exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
     act_counter_repo = cast(ActCounterLedgerRepositoryPort, repo)
+    payment_watch_repo = cast(PaymentWatchRepositoryPort, repo)
 
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map
@@ -119,6 +129,22 @@ def setup_handlers(
 
     services = AppServices()
     act_counter_service = ActCounterService(act_counter_repo)
+    payment_watch_service = PaymentWatchService(
+        repo=payment_watch_repo,
+        tronscan_gateway=TronscanGateway(
+            settings=TronscanSettings(
+                base_url=config.tronscan_api_base_url or "https://apilist.tronscanapi.com",
+                api_key=config.tronscan_api_key,
+                usdt_contract=config.tronscan_usdt_contract,
+            )
+        ),
+        timeout_seconds=config.payment_watch_timeout_seconds,
+    )
+    services.payment_watch_poller = PaymentWatchPoller(
+        bot=bot,
+        service=payment_watch_service,
+        interval_seconds=config.payment_watch_poll_interval_seconds,
+    )
 
     managers_handler = ManagersHandler(ManagerAdminService(manager_repo), config.admin_chat_id)
     dp.include_router(managers_handler.router)
@@ -146,6 +172,14 @@ def setup_handlers(
     office_handler = OfficeCardsHandler(OFFICE_CARDS)
     dp.include_router(office_handler.router)
     dp.include_router(debug_router)
+
+    payment_watch_handler = PaymentWatchHandler(
+        repo=manager_repo,
+        payment_watch_service=payment_watch_service,
+        admin_chat_ids=admin_chat_list,
+        admin_user_ids=admin_user_list,
+    )
+    dp.include_router(payment_watch_handler.router)
 
     nonzero_handler = NonZeroHandler(NonZeroWalletQueryService(client_wallet_tx_repo))
 

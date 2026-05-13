@@ -1,0 +1,385 @@
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+
+from db_asyncpg.pool import get_pool
+from db_asyncpg.repositories.base import BaseRepo
+
+
+class PaymentWatchRepo(BaseRepo):
+    async def _ensure_payment_watch_tables(self, con) -> None:
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_watches (
+                id BIGSERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                reply_message_id BIGINT NOT NULL,
+                address TEXT NOT NULL,
+                our_address TEXT NOT NULL,
+                created_by_user_id BIGINT,
+                mode TEXT NOT NULL CHECK (mode IN ('SINGLE', 'TEST_THEN_MAIN')),
+                phase TEXT NOT NULL CHECK (phase IN ('TEST', 'MAIN')),
+                status TEXT NOT NULL CHECK (status IN ('WATCHING', 'TIMED_OUT', 'COMPLETED', 'STOPPED')),
+                timeout_at TIMESTAMPTZ NOT NULL,
+                continue_count INTEGER NOT NULL DEFAULT 0,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                notice_message_id BIGINT,
+                last_checked_at TIMESTAMPTZ,
+                completed_at TIMESTAMPTZ,
+                stopped_at TIMESTAMPTZ,
+                timed_out_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        await con.execute(
+            """
+            ALTER TABLE payment_watches
+            ADD COLUMN IF NOT EXISTS our_address TEXT
+            """
+        )
+        await con.execute(
+            """
+            ALTER TABLE payment_watches
+            ADD COLUMN IF NOT EXISTS notice_message_id BIGINT
+            """
+        )
+        await con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_payment_watches_status_timeout
+            ON payment_watches(status, timeout_at, id)
+            """
+        )
+        await con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_payment_watches_chat_reply
+            ON payment_watches(chat_id, reply_message_id, created_at DESC)
+            """
+        )
+        await con.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_watch_events (
+                id BIGSERIAL PRIMARY KEY,
+                watch_id BIGINT NOT NULL REFERENCES payment_watches(id) ON DELETE CASCADE,
+                tx_hash TEXT NOT NULL,
+                event_type TEXT NOT NULL CHECK (event_type IN ('TEST', 'MAIN')),
+                direction TEXT NOT NULL CHECK (direction IN ('IN', 'OUT')),
+                amount NUMERIC(38,8) NOT NULL,
+                token_symbol TEXT NOT NULL,
+                confirmations INTEGER NOT NULL,
+                block_ts TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (watch_id, tx_hash)
+            )
+            """
+        )
+        await con.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_payment_watch_events_watch_created
+            ON payment_watch_events(watch_id, created_at, id)
+            """
+        )
+
+    async def create_payment_watch(
+        self,
+        *,
+        chat_id: int,
+        reply_message_id: int,
+        address: str,
+        our_address: str,
+        created_by_user_id: int | None,
+        mode: str,
+        phase: str,
+        status: str,
+        timeout_at: datetime,
+    ) -> int:
+        timeout_norm = self._normalize_dt(timeout_at)
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                row = await con.fetchrow(
+                    """
+                    INSERT INTO payment_watches (
+                        chat_id,
+                        reply_message_id,
+                        address,
+                        our_address,
+                        created_by_user_id,
+                        mode,
+                        phase,
+                        status,
+                        timeout_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    RETURNING id
+                    """,
+                    int(chat_id),
+                    int(reply_message_id),
+                    str(address),
+                    str(our_address),
+                    int(created_by_user_id) if created_by_user_id is not None else None,
+                    str(mode).upper(),
+                    str(phase).upper(),
+                    str(status).upper(),
+                    timeout_norm,
+                )
+                return int(row["id"])
+
+    async def get_payment_watch(self, *, watch_id: int) -> dict | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                row = await con.fetchrow(
+                    """
+                    SELECT *
+                    FROM payment_watches
+                    WHERE id = $1
+                    """,
+                    int(watch_id),
+                )
+                return dict(row) if row else None
+
+    async def get_active_payment_watch_by_reply(
+        self,
+        *,
+        chat_id: int,
+        reply_message_id: int,
+    ) -> dict | None:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                row = await con.fetchrow(
+                    """
+                    SELECT *
+                    FROM payment_watches
+                    WHERE chat_id = $1
+                      AND reply_message_id = $2
+                      AND status IN ('WATCHING', 'TIMED_OUT')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """,
+                    int(chat_id),
+                    int(reply_message_id),
+                )
+                return dict(row) if row else None
+
+    async def list_watching_payment_watches(self, *, limit: int = 100) -> list[dict]:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                rows = await con.fetch(
+                    """
+                    SELECT *
+                    FROM payment_watches
+                    WHERE status = 'WATCHING'
+                    ORDER BY timeout_at ASC, id ASC
+                    LIMIT $1
+                    """,
+                    int(limit),
+                )
+                return [dict(row) for row in rows]
+
+    async def touch_payment_watch_checked_at(self, *, watch_id: int, checked_at: datetime) -> None:
+        checked_norm = self._normalize_dt(checked_at)
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET last_checked_at = $2
+                    WHERE id = $1
+                    """,
+                    int(watch_id),
+                    checked_norm,
+                )
+
+    async def add_payment_watch_event(
+        self,
+        *,
+        watch_id: int,
+        tx_hash: str,
+        event_type: str,
+        direction: str,
+        amount: Decimal,
+        token_symbol: str,
+        confirmations: int,
+        block_ts: datetime,
+    ) -> int:
+        block_ts_norm = self._normalize_dt(block_ts)
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                row = await con.fetchrow(
+                    """
+                    INSERT INTO payment_watch_events (
+                        watch_id,
+                        tx_hash,
+                        event_type,
+                        direction,
+                        amount,
+                        token_symbol,
+                        confirmations,
+                        block_ts
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    ON CONFLICT (watch_id, tx_hash) DO UPDATE SET
+                        confirmations = GREATEST(payment_watch_events.confirmations, EXCLUDED.confirmations)
+                    RETURNING id
+                    """,
+                    int(watch_id),
+                    str(tx_hash),
+                    str(event_type).upper(),
+                    str(direction).upper(),
+                    amount,
+                    str(token_symbol).upper(),
+                    int(confirmations),
+                    block_ts_norm,
+                )
+                return int(row["id"])
+
+    async def list_payment_watch_events(self, *, watch_id: int) -> list[dict]:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                rows = await con.fetch(
+                    """
+                    SELECT *
+                    FROM payment_watch_events
+                    WHERE watch_id = $1
+                    ORDER BY block_ts ASC, id ASC
+                    """,
+                    int(watch_id),
+                )
+                return [dict(row) for row in rows]
+
+    async def get_payment_watch_event_hashes(self, *, watch_id: int) -> set[str]:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                rows = await con.fetch(
+                    """
+                    SELECT tx_hash
+                    FROM payment_watch_events
+                    WHERE watch_id = $1
+                    """,
+                    int(watch_id),
+                )
+                return {str(row["tx_hash"]) for row in rows}
+
+    async def set_payment_watch_phase(self, *, watch_id: int, phase: str) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET phase = $2
+                    WHERE id = $1
+                    """,
+                    int(watch_id),
+                    str(phase).upper(),
+                )
+                return res.endswith(" 1")
+
+    async def mark_payment_watch_timed_out(self, *, watch_id: int) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET status = 'TIMED_OUT',
+                        timed_out_at = NOW()
+                    WHERE id = $1
+                      AND status = 'WATCHING'
+                    """,
+                    int(watch_id),
+                )
+                return res.endswith(" 1")
+
+    async def continue_payment_watch(self, *, watch_id: int, timeout_at: datetime) -> bool:
+        timeout_norm = self._normalize_dt(timeout_at)
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET status = 'WATCHING',
+                        timeout_at = $2,
+                        continue_count = continue_count + 1
+                    WHERE id = $1
+                      AND status = 'TIMED_OUT'
+                    """,
+                    int(watch_id),
+                    timeout_norm,
+                )
+                return res.endswith(" 1")
+
+    async def stop_payment_watch(self, *, watch_id: int) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET status = 'STOPPED',
+                        stopped_at = NOW()
+                    WHERE id = $1
+                      AND status IN ('WATCHING', 'TIMED_OUT')
+                    """,
+                    int(watch_id),
+                )
+                return res.endswith(" 1")
+
+    async def complete_payment_watch(self, *, watch_id: int) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET status = 'COMPLETED',
+                        completed_at = NOW()
+                    WHERE id = $1
+                      AND status <> 'COMPLETED'
+                    """,
+                    int(watch_id),
+                )
+                return res.endswith(" 1")
+
+    async def set_payment_watch_notice_message_id(
+        self,
+        *,
+        watch_id: int,
+        notice_message_id: int,
+    ) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as con:
+            async with con.transaction():
+                await self._ensure_payment_watch_tables(con)
+                res = await con.execute(
+                    """
+                    UPDATE payment_watches
+                    SET notice_message_id = $2
+                    WHERE id = $1
+                    """,
+                    int(watch_id),
+                    int(notice_message_id),
+                )
+                return res.endswith(" 1")

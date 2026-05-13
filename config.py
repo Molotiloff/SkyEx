@@ -59,6 +59,11 @@ class Config:
     database_url: str
     converter_api_base_url: str | None
     converter_api_token: str | None
+    tronscan_api_base_url: str | None
+    tronscan_api_key: str | None
+    tronscan_usdt_contract: str
+    payment_watch_poll_interval_seconds: int
+    payment_watch_timeout_seconds: int
 
     admin_chat_id: int
     admin_ids: list[int]
@@ -102,6 +107,18 @@ class Config:
 
         converter_api_base_url = (os.getenv("CONVERTER_API_BASE_URL", "") or "").strip() or None
         converter_api_token = (os.getenv("CONVERTER_API_TOKEN", "") or "").strip() or None
+        tronscan_api_base_url = (os.getenv("TRONSCAN_API_BASE_URL", "") or "").strip() or None
+        tronscan_api_key = (os.getenv("TRONSCAN_API_KEY", "") or "").strip() or None
+        tronscan_usdt_contract = (
+            (os.getenv("TRONSCAN_USDT_CONTRACT", "") or "").strip()
+            or "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+        )
+        payment_watch_poll_interval_seconds = int(
+            (os.getenv("PAYMENT_WATCH_POLL_INTERVAL_SECONDS", "") or "30").strip()
+        )
+        payment_watch_timeout_seconds = int(
+            (os.getenv("PAYMENT_WATCH_TIMEOUT_SECONDS", "") or str(3 * 60 * 60)).strip()
+        )
 
         admin_chat_id = int(os.getenv("ADMIN_CHAT_ID", "0"))
         admin_ids = _parse_int_list(os.getenv("ADMIN_IDS"))
@@ -149,6 +166,11 @@ class Config:
             database_url=db_url,
             converter_api_base_url=converter_api_base_url,
             converter_api_token=converter_api_token,
+            tronscan_api_base_url=tronscan_api_base_url,
+            tronscan_api_key=tronscan_api_key,
+            tronscan_usdt_contract=tronscan_usdt_contract,
+            payment_watch_poll_interval_seconds=payment_watch_poll_interval_seconds,
+            payment_watch_timeout_seconds=payment_watch_timeout_seconds,
             admin_chat_id=admin_chat_id,
             admin_ids=admin_ids,
             request_chat_id=request_chat_id,

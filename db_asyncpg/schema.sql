@@ -157,3 +157,47 @@ CREATE INDEX IF NOT EXISTS idx_act_request_transactions_chat_status_created
 
 CREATE INDEX IF NOT EXISTS idx_act_request_transactions_table_req_id
     ON act_request_transactions(table_req_id);
+
+CREATE TABLE IF NOT EXISTS payment_watches (
+    id BIGSERIAL PRIMARY KEY,
+    chat_id BIGINT NOT NULL,
+    reply_message_id BIGINT NOT NULL,
+    address TEXT NOT NULL,
+    our_address TEXT NOT NULL,
+    created_by_user_id BIGINT,
+    mode TEXT NOT NULL CHECK (mode IN ('SINGLE', 'TEST_THEN_MAIN')),
+    phase TEXT NOT NULL CHECK (phase IN ('TEST', 'MAIN')),
+    status TEXT NOT NULL CHECK (status IN ('WATCHING', 'TIMED_OUT', 'COMPLETED', 'STOPPED')),
+    timeout_at TIMESTAMPTZ NOT NULL,
+    continue_count INTEGER NOT NULL DEFAULT 0,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notice_message_id BIGINT,
+    last_checked_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    stopped_at TIMESTAMPTZ,
+    timed_out_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_watches_status_timeout
+    ON payment_watches(status, timeout_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_payment_watches_chat_reply
+    ON payment_watches(chat_id, reply_message_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS payment_watch_events (
+    id BIGSERIAL PRIMARY KEY,
+    watch_id BIGINT NOT NULL REFERENCES payment_watches(id) ON DELETE CASCADE,
+    tx_hash TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('TEST', 'MAIN')),
+    direction TEXT NOT NULL CHECK (direction IN ('IN', 'OUT')),
+    amount NUMERIC(38,8) NOT NULL,
+    token_symbol TEXT NOT NULL,
+    confirmations INTEGER NOT NULL,
+    block_ts TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (watch_id, tx_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_watch_events_watch_created
+    ON payment_watch_events(watch_id, created_at, id);
