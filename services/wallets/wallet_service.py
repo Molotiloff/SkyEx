@@ -11,6 +11,7 @@ from db_asyncpg.ports import (
     ClientWalletTransactionRepositoryPort,
 )
 from services.wallets.command_parser import WalletCommandParser
+from services.wallets.city_cash_media_store import CityCashMediaStore
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
 from services.wallets.mutation_service import CurrencyMutationService
 from services.wallets.query_service import WalletQueryService
@@ -24,6 +25,7 @@ class WalletService:
         *,
         repo: ClientTransferRepositoryPort,
         city_cash_chat_ids: Iterable[int] | None = None,
+        city_cash_media_store: CityCashMediaStore | None = None,
     ) -> None:
         self.repo = repo
         self.text_builder = WalletTextBuilder()
@@ -35,6 +37,7 @@ class WalletService:
             repo=repo,
             parser=self.parser,
             text_builder=self.text_builder,
+            city_cash_media_store=city_cash_media_store,
         )
         self.undo_service = WalletUndoService(
             repo=wallet_undo_repo,

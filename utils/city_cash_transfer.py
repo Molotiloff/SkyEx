@@ -1,16 +1,18 @@
 # utils/city_cash_transfer.py
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, Awaitable, Callable
 
 from aiogram import Bot
-from aiogram.types import Message
+from aiogram.types import InputMediaPhoto, Message
 from aiogram.exceptions import TelegramMigrateToChat
 
 from db_asyncpg.ports import ClientTransferRepositoryPort
+from services.wallets.city_cash_media_store import CityCashMediaStore
 from utils.formatting import format_amount_core, format_amount_with_sign
 from utils.info import get_chat_name
 
@@ -31,6 +33,15 @@ def _pick_photo_file_id(message: Message) -> Optional[str]:
     if not message.photo:
         return None
     return message.photo[-1].file_id
+
+
+def _pick_photo_file_ids(messages: list[Message]) -> list[str]:
+    out: list[str] = []
+    for msg in messages:
+        if not msg.photo:
+            continue
+        out.append(msg.photo[-1].file_id)
+    return out
 
 
 async def _safe_send_with_migration(
@@ -62,7 +73,6 @@ async def _safe_send_with_migration(
         # 1) обновляем в БД
         try:
             await repo.update_client_chat_id(client_id=target_client_id, new_chat_id=new_chat_id)
-            log.info("clients.chat_id updated: client_id=%s new_chat_id=%s", target_client_id, new_chat_id)
         except Exception:
             log.exception("FAILED updating clients.chat_id client_id=%s new_chat_id=%s", target_client_id, new_chat_id)
             # даже если БД не обновилась — пробуем отправить по новому chat_id
@@ -77,24 +87,15 @@ async def city_cash_transfer_to_client(
     repo: ClientTransferRepositoryPort,
     bot: Bot,
     src_message: Message,
+    media_store: CityCashMediaStore | None,
     currency_code: str,
     amount_signed: Decimal,
     amount_expr: str,
     client_name_exact: str,
     extra_comment: str = "",
 ) -> CityTransferResult:
-    log.info(
-        "START transfer src_chat_id=%s src_msg_id=%s code=%s amount_signed=%s amount_expr=%r client_name=%r",
-        src_message.chat.id, src_message.message_id,
-        (currency_code or "").strip().upper(),
-        str(amount_signed),
-        amount_expr,
-        client_name_exact,
-    )
-
     # 1) найти клиента
     found = await repo.find_client_by_name_exact(client_name_exact)
-    log.info("find_client_by_name_exact(%r) -> %s", client_name_exact, found)
     if not found:
         return CityTransferResult(
             ok=False,
@@ -111,7 +112,6 @@ async def city_cash_transfer_to_client(
     # 2) проверить счёт клиента и точность
     target_accounts = await repo.snapshot_wallet(target_client_id)
     target_acc = next((r for r in target_accounts if str(r["currency_code"]).upper() == code), None)
-    log.info("target_wallet client_id=%s code=%s acc_found=%s", target_client_id, code, bool(target_acc))
     if not target_acc:
         return CityTransferResult(
             ok=False,
@@ -126,7 +126,6 @@ async def city_cash_transfer_to_client(
     target_prec = int(target_acc["precision"]) if target_acc.get("precision") is not None else 2
     q = Decimal(10) ** -target_prec
     delta_abs = amount_signed.copy_abs().quantize(q, rounding=ROUND_HALF_UP)
-    log.info("quantize for client: prec=%s delta_abs=%s", target_prec, str(delta_abs))
 
     if delta_abs == 0:
         return CityTransferResult(
@@ -147,7 +146,6 @@ async def city_cash_transfer_to_client(
 
     try:
         if amount_signed > 0:
-            log.info("repo.deposit client_id=%s code=%s amount=%s idem=%s", target_client_id, code, str(delta_abs), idem2)
             await repo.deposit(
                 client_id=target_client_id,
                 currency_code=code,
@@ -158,7 +156,6 @@ async def city_cash_transfer_to_client(
             )
             pretty_delta = format_amount_with_sign(delta_abs, target_prec, sign="+")
         else:
-            log.info("repo.withdraw client_id=%s code=%s amount=%s idem=%s", target_client_id, code, str(delta_abs), idem2)
             await repo.withdraw(
                 client_id=target_client_id,
                 currency_code=code,
@@ -178,17 +175,49 @@ async def city_cash_transfer_to_client(
         )
 
     # 4) отправить фото/квитанцию
-    photo_file_id = _pick_photo_file_id(src_message)
+    photo_file_ids: list[str] = []
+    if src_message.media_group_id and media_store is not None:
+        previous_size = -1
+        stable_passes = 0
+        for _ in range(5):
+            await asyncio.sleep(0.25)
+            current_size = media_store.group_size(
+                chat_id=src_message.chat.id,
+                media_group_id=src_message.media_group_id,
+            )
+            if current_size > 0 and current_size == previous_size:
+                stable_passes += 1
+            else:
+                stable_passes = 0
+            previous_size = current_size
+            if current_size > 1 and stable_passes >= 1:
+                break
+
+        group_messages = media_store.pop_group(
+            chat_id=src_message.chat.id,
+            media_group_id=src_message.media_group_id,
+        )
+        photo_file_ids = _pick_photo_file_ids(group_messages)
+
+    if not photo_file_ids:
+        photo_file_id = _pick_photo_file_id(src_message)
+        if photo_file_id:
+            photo_file_ids = [photo_file_id]
+
     caption = f"/{code.lower()} {amount_expr}".strip()
     if extra_comment:
         caption += f" {extra_comment}"
 
     async def _send_receipt(chat_id: int):
-        if photo_file_id:
-            log.info("send_photo to chat_id=%s caption=%r", chat_id, caption)
-            return await bot.send_photo(chat_id=chat_id, photo=photo_file_id, caption=caption)
+        if len(photo_file_ids) > 1:
+            media = [
+                InputMediaPhoto(media=file_id, caption=caption if idx == 0 else None)
+                for idx, file_id in enumerate(photo_file_ids)
+            ]
+            return await bot.send_media_group(chat_id=chat_id, media=media)
+        if len(photo_file_ids) == 1:
+            return await bot.send_photo(chat_id=chat_id, photo=photo_file_ids[0], caption=caption)
         else:
-            log.info("send_message to chat_id=%s text=%r", chat_id, caption)
             return await bot.send_message(chat_id=chat_id, text=caption)
 
     try:
@@ -220,7 +249,6 @@ async def city_cash_transfer_to_client(
 
         async def _send_balance(chat_id: int):
             text = f"Запомнил. {pretty_delta}\nБаланс: {pretty_bal} {code.lower()}"
-            log.info("send_balance to chat_id=%s text=%r", chat_id, text)
             return await bot.send_message(chat_id=chat_id, text=text)
 
         target_chat_id = await _safe_send_with_migration(
@@ -243,9 +271,6 @@ async def city_cash_transfer_to_client(
             pretty_delta=pretty_delta,
             pretty_balance=None,
         )
-
-    log.info("DONE transfer client_id=%s chat_id=%s delta=%s bal=%s", target_client_id, target_chat_id,
-             pretty_delta, pretty_bal)
 
     return CityTransferResult(
         ok=True,

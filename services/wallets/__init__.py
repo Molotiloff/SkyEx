@@ -1,4 +1,5 @@
 from .command_parser import WalletCommandParser
+from .city_cash_media_store import CityCashMediaStore
 from .interaction_service import WalletInteractionService
 from .models import CityTransferResultView, ParsedCurrencyChange, WalletCommandResult
 from .mutation_service import CurrencyMutationService
@@ -9,6 +10,7 @@ from .wallet_service import WalletService
 
 __all__ = [
     "CityTransferResultView",
+    "CityCashMediaStore",
     "CurrencyMutationService",
     "ParsedCurrencyChange",
     "WalletCommandResult",

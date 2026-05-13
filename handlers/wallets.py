@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import Iterable
 from typing import cast
@@ -9,8 +10,10 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.ports import ClientTransferRepositoryPort
+from db_asyncpg.ports import ClientTransactionRepositoryPort
 from db_asyncpg.repo import Repo
 from services.wallets import WalletInteractionService, WalletService
+from services.wallets.city_cash_media_store import CityCashMediaStore
 from utils.auth import (
     manager_or_admin_callback_required,
     manager_or_admin_message_required,
@@ -37,14 +40,27 @@ class WalletsHandler:
         self.admin_user_ids = set(admin_user_ids or [])
         self.ignore_chat_ids = set(ignore_chat_ids or [])
         self.city_cash_chat_ids = set(city_cash_chat_ids or [])
+        self.city_cash_media_store = CityCashMediaStore()
         wallet_repo = cast(ClientTransferRepositoryPort, repo)
         self.wallet_service = WalletService(
             repo=wallet_repo,
             city_cash_chat_ids=city_cash_chat_ids,
+            city_cash_media_store=self.city_cash_media_store,
         )
         self.interaction_service = WalletInteractionService(wallet_service=self.wallet_service)
         self.router = Router()
         self._register()
+
+    async def _process_buffered_city_cash_command(self, message: Message) -> None:
+        await asyncio.sleep(0.8)
+        async with chat_locks.for_chat(message.chat.id):
+            result = await self.interaction_service.build_currency_change_response(message)
+            if not result:
+                return
+            await message.answer(
+                result.message_text,
+                reply_markup=result.reply_markup,
+            )
 
     @manager_or_admin_message_required
     async def _cmd_wallet(self, message: Message) -> None:
@@ -70,6 +86,22 @@ class WalletsHandler:
             return
 
         if message.chat and message.chat.id in self.ignore_chat_ids:
+            return
+
+        if (
+            message.media_group_id
+            and message.photo
+            and message.chat.id in self.city_cash_chat_ids
+        ):
+            self.city_cash_media_store.add_message(
+                chat_id=message.chat.id,
+                media_group_id=message.media_group_id,
+                message=message,
+            )
+            asyncio.create_task(
+                self._process_buffered_city_cash_command(message),
+                name=f"city_cash_album:{message.chat.id}:{message.media_group_id}:{message.message_id}",
+            )
             return
 
         text = message.text or message.caption or ""
@@ -100,6 +132,17 @@ class WalletsHandler:
                 result.message_text,
                 reply_markup=result.reply_markup,
             )
+
+    async def _buffer_city_cash_media_group(self, message: Message) -> None:
+        if not message.media_group_id or not message.photo:
+            return
+        if message.chat.id not in self.city_cash_chat_ids:
+            return
+        self.city_cash_media_store.add_message(
+            chat_id=message.chat.id,
+            media_group_id=message.media_group_id,
+            message=message,
+        )
 
     @manager_or_admin_callback_required
     async def _cb_rmcur(self, cq: CallbackQuery) -> None:
@@ -160,7 +203,7 @@ class WalletsHandler:
             await cq.answer("Откат выполнен" if result.ok else result.message_text[:100], show_alert=not result.ok)
 
     async def _cb_statement(self, cq: CallbackQuery) -> None:
-        await handle_stmt_callback(cq, self.repo)
+        await handle_stmt_callback(cq, cast(ClientTransactionRepositoryPort, self.repo))
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_wallet, Command("кошелек"))
@@ -174,6 +217,10 @@ class WalletsHandler:
         self.router.message.register(
             self._on_currency_change,
             F.caption.regexp(r"^/[A-Za-zА-Яа-я0-9_]+\s+"),
+        )
+        self.router.message.register(
+            self._buffer_city_cash_media_group,
+            F.media_group_id,
         )
 
         self.router.callback_query.register(self._cb_rmcur, F.data.startswith("rmcur:"))

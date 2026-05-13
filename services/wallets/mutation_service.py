@@ -8,6 +8,7 @@ from aiogram.types import Message
 from db_asyncpg.ports import ClientTransferRepositoryPort
 from keyboards import rmcur_confirm_kb
 from services.wallets.command_parser import WalletCommandParser
+from services.wallets.city_cash_media_store import CityCashMediaStore
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
 from services.wallets.text_builder import WalletTextBuilder
 from utils.city_cash_transfer import city_cash_transfer_to_client
@@ -24,10 +25,12 @@ class CurrencyMutationService:
         repo: ClientTransferRepositoryPort,
         parser: WalletCommandParser | None = None,
         text_builder: WalletTextBuilder | None = None,
+        city_cash_media_store: CityCashMediaStore | None = None,
     ) -> None:
         self.repo = repo
         self.parser = parser or WalletCommandParser()
         self.text_builder = text_builder or WalletTextBuilder()
+        self.city_cash_media_store = city_cash_media_store
 
     async def build_remove_currency_confirmation(
         self,
@@ -163,15 +166,11 @@ class CurrencyMutationService:
         reply_markup = self.text_builder.undo_kb(parsed.code, sign_flag, amt_str)
 
         if parsed.is_city_cash and parsed.client_name_for_transfer:
-            log.info(
-                "city_transfer: src_chat_id=%s src_msg_id=%s -> client_name=%r code=%s expr=%r amount=%s",
-                chat_id, message.message_id, parsed.client_name_for_transfer,
-                parsed.code, parsed.expr, str(parsed.amount),
-            )
             res = await city_cash_transfer_to_client(
                 repo=self.repo,
                 bot=message.bot,
                 src_message=message,
+                media_store=self.city_cash_media_store,
                 currency_code=parsed.code,
                 amount_signed=parsed.amount,
                 amount_expr=parsed.expr,
