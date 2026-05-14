@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 
 from services.payment_watch.models import PaymentWatchNotification
 from services.payment_watch.service import PaymentWatchService
@@ -91,11 +91,20 @@ class PaymentWatchPoller:
                 log.exception("Failed to delete previous payment watch message chat_id=%s msg_id=%s", item.chat_id, item.delete_message_id)
         kwargs = {
             "chat_id": item.chat_id,
-            "text": item.text,
-            "parse_mode": "HTML",
         }
         if item.reply_message_id:
             kwargs["reply_to_message_id"] = item.reply_message_id
         if item.with_timeout_actions and item.watch_id is not None:
             kwargs["reply_markup"] = build_timeout_keyboard(item.watch_id)
+        if item.photo_bytes:
+            kwargs["photo"] = BufferedInputFile(
+                item.photo_bytes,
+                filename=item.photo_filename or "payment_receipt.png",
+            )
+            kwargs["caption"] = item.text
+            kwargs["parse_mode"] = "HTML"
+            await self.bot.send_photo(**kwargs)
+            return
+        kwargs["text"] = item.text
+        kwargs["parse_mode"] = "HTML"
         await self.bot.send_message(**kwargs)

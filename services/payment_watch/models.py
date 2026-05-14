@@ -30,3 +30,5 @@ class PaymentWatchNotification:
     watch_id: int | None = None
     with_timeout_actions: bool = False
     delete_message_id: int | None = None
+    photo_bytes: bytes | None = None
+    photo_filename: str | None = None

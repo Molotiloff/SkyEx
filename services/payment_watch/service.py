@@ -9,6 +9,7 @@ from services.admin_client import USDT_WALLET_SETTING_KEY
 from services.payment_watch.address_parser import extract_tron_address_from_message
 from services.payment_watch.message_builder import PaymentWatchMessageBuilder
 from services.payment_watch.models import PaymentWatchNotification
+from services.payment_watch.receipt_image import PaymentReceiptImageBuilder
 from services.payment_watch.tronscan_gateway import TronscanGateway
 
 
@@ -30,8 +31,15 @@ class PaymentWatchService:
         self.timeout_seconds = int(timeout_seconds)
         self.test_amount = Decimal(test_amount)
         self.builder = PaymentWatchMessageBuilder()
+        self.receipt_builder = PaymentReceiptImageBuilder()
 
-    async def start_watch_from_reply(self, *, message: Message, test_mode: bool) -> tuple[int, str]:
+    async def start_watch_from_reply(
+        self,
+        *,
+        message: Message,
+        test_mode: bool,
+        manager_note: str | None = None,
+    ) -> tuple[int, str]:
         reply = message.reply_to_message
         if reply is None:
             raise PaymentWatchError("Команда должна быть ответом на сообщение с кошельком клиента.")
@@ -68,7 +76,11 @@ class PaymentWatchService:
             status="WATCHING",
             timeout_at=timeout_at,
         )
-        return watch_id, self.builder.build_started(address=address, test_mode=test_mode)
+        return watch_id, self.builder.build_started(
+            address=address,
+            test_mode=test_mode,
+            manager_note=manager_note,
+        )
 
     async def continue_watch(self, *, watch_id: int) -> str:
         watch = await self.repo.get_payment_watch(watch_id=watch_id)
@@ -200,18 +212,21 @@ class PaymentWatchService:
             )
             await self.repo.complete_payment_watch(watch_id=watch_id)
             notifications.append(
-                PaymentWatchNotification(
-                    chat_id=int(watch["chat_id"]),
-                    reply_message_id=int(watch["reply_message_id"]),
-                    text=self.builder.build_main_success(
-                        amount=transfer.amount,
-                        tx_hash=transfer.tx_hash,
-                        from_address=transfer.from_address,
-                        to_address=transfer.to_address,
-                        block_number=transfer.block_number,
-                    ),
-                    delete_message_id=int(watch["notice_message_id"]) if watch.get("notice_message_id") else None,
+                    PaymentWatchNotification(
+                        chat_id=int(watch["chat_id"]),
+                        reply_message_id=int(watch["reply_message_id"]),
+                        text=self.builder.build_main_success(
+                            amount=transfer.amount,
+                            tx_hash=transfer.tx_hash,
+                        ),
+                        delete_message_id=int(watch["notice_message_id"]) if watch.get("notice_message_id") else None,
+                        photo_bytes=self.receipt_builder.build_main_success(
+                            amount=transfer.amount,
+                            recipient_address=transfer.to_address,
+                            tx_hash=transfer.tx_hash,
+                        ),
+                        photo_filename=f"payment_receipt_{watch_id}.png",
+                    )
                 )
-            )
             break
         return notifications

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Iterable
 
 from aiogram import F, Router
@@ -32,12 +33,16 @@ class PaymentWatchHandler:
     @manager_or_admin_message_required
     async def _cmd_payment(self, message: Message) -> None:
         raw = (message.text or "").strip()
-        parts = raw.split(maxsplit=1)
-        test_mode = len(parts) > 1 and parts[1].strip().lower() == "тест"
+        try:
+            test_mode, manager_note = self._parse_send_command(raw)
+        except PaymentWatchError as exc:
+            await message.answer(str(exc))
+            return
         try:
             watch_id, text = await self.payment_watch_service.start_watch_from_reply(
                 message=message,
                 test_mode=test_mode,
+                manager_note=manager_note,
             )
         except PaymentWatchError as exc:
             await message.answer(str(exc))
@@ -82,6 +87,36 @@ class PaymentWatchHandler:
         self.router.message.register(self._cmd_payment, Command("отпр"))
         self.router.callback_query.register(self._cb_continue, F.data.startswith("paywatch:continue:"))
         self.router.callback_query.register(self._cb_stop, F.data.startswith("paywatch:stop:"))
+
+    @staticmethod
+    def _parse_send_command(raw: str) -> tuple[bool, str | None]:
+        parts = raw.split()
+        args = parts[1:]
+        if not args:
+            return False, None
+
+        first = args[0].strip().lower()
+        test_mode = first in {"тест", "test"}
+        note_token: str | None = None
+
+        if test_mode:
+            if len(args) >= 2:
+                note_token = args[1].strip()
+            if len(args) > 2:
+                raise PaymentWatchError("Используйте: /отпр, /отпр 10000, /отпр тест, /отпр тест 10000")
+        else:
+            note_token = args[0].strip()
+            if len(args) > 1:
+                raise PaymentWatchError("Используйте: /отпр, /отпр 10000, /отпр тест, /отпр тест 10000")
+
+        if note_token:
+            try:
+                Decimal(note_token.replace(",", "."))
+            except (InvalidOperation, ValueError):
+                raise PaymentWatchError("Комментарий-сумма должен быть числом. Примеры: /отпр 10000, /отпр тест 10000")
+            return test_mode, note_token
+
+        return test_mode, None
 
 
 __all__ = ["PaymentWatchHandler"]
