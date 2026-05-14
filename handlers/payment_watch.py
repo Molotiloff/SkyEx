@@ -79,7 +79,7 @@ class PaymentWatchHandler:
             await cq.message.edit_text(text, parse_mode="HTML")
 
     def _register(self) -> None:
-        self.router.message.register(self._cmd_payment, Command("оплата"))
+        self.router.message.register(self._cmd_payment, Command("отпр"))
         self.router.callback_query.register(self._cb_continue, F.data.startswith("paywatch:continue:"))
         self.router.callback_query.register(self._cb_stop, F.data.startswith("paywatch:stop:"))
 
