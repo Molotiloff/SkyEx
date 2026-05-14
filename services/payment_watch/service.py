@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import logging
 
 from aiogram.types import Message
 
@@ -15,6 +16,9 @@ from services.payment_watch.tronscan_gateway import TronscanGateway
 
 class PaymentWatchError(Exception):
     pass
+
+
+log = logging.getLogger("payment_watch")
 
 
 class PaymentWatchService:
@@ -211,22 +215,27 @@ class PaymentWatchService:
                 block_ts=transfer.block_ts,
             )
             await self.repo.complete_payment_watch(watch_id=watch_id)
-            notifications.append(
-                    PaymentWatchNotification(
-                        chat_id=int(watch["chat_id"]),
-                        reply_message_id=int(watch["reply_message_id"]),
-                        text=self.builder.build_main_success(
-                            amount=transfer.amount,
-                            tx_hash=transfer.tx_hash,
-                        ),
-                        delete_message_id=int(watch["notice_message_id"]) if watch.get("notice_message_id") else None,
-                        photo_bytes=self.receipt_builder.build_main_success(
-                            amount=transfer.amount,
-                            recipient_address=transfer.to_address,
-                            tx_hash=transfer.tx_hash,
-                        ),
-                        photo_filename=f"payment_receipt_{watch_id}.png",
-                    )
+            photo_bytes: bytes | None = None
+            try:
+                photo_bytes = self.receipt_builder.build_main_success(
+                    amount=transfer.amount,
+                    recipient_address=transfer.to_address,
+                    tx_hash=transfer.tx_hash,
                 )
+            except Exception as exc:
+                log.warning("Payment receipt image disabled: %s", exc)
+            notifications.append(
+                PaymentWatchNotification(
+                    chat_id=int(watch["chat_id"]),
+                    reply_message_id=int(watch["reply_message_id"]),
+                    text=self.builder.build_main_success(
+                        amount=transfer.amount,
+                        tx_hash=transfer.tx_hash,
+                    ),
+                    delete_message_id=int(watch["notice_message_id"]) if watch.get("notice_message_id") else None,
+                    photo_bytes=photo_bytes,
+                    photo_filename=f"payment_receipt_{watch_id}.png" if photo_bytes else None,
+                )
+            )
             break
         return notifications

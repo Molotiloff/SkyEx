@@ -3,9 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from io import BytesIO
+import logging
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ModuleNotFoundError:  # pragma: no cover - optional runtime dependency
+    Image = None
+    ImageDraw = None
+    ImageFont = None
+
+
+log = logging.getLogger("payment_watch")
 
 
 def _fmt(amount: Decimal) -> str:
@@ -14,6 +23,8 @@ def _fmt(amount: Decimal) -> str:
 
 
 def _pick_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
+    if ImageFont is None:
+        raise RuntimeError("Pillow is not installed")
     candidates: list[str] = []
     if bold:
         candidates.extend(
@@ -59,6 +70,8 @@ class PaymentReceiptImageBuilder:
         recipient_address: str,
         tx_hash: str,
     ) -> bytes:
+        if Image is None or ImageDraw is None or ImageFont is None:
+            raise RuntimeError("Pillow is not installed")
         image = Image.new("RGB", (self.width, self.height), self.background_color)
         draw = ImageDraw.Draw(image)
 
