@@ -14,6 +14,7 @@ class PaymentWatchRepo(BaseRepo):
             CREATE TABLE IF NOT EXISTS payment_watches (
                 id BIGSERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL,
+                chat_name TEXT,
                 reply_message_id BIGINT NOT NULL,
                 address TEXT NOT NULL,
                 our_address TEXT NOT NULL,
@@ -37,6 +38,12 @@ class PaymentWatchRepo(BaseRepo):
             """
             ALTER TABLE payment_watches
             ADD COLUMN IF NOT EXISTS our_address TEXT
+            """
+        )
+        await con.execute(
+            """
+            ALTER TABLE payment_watches
+            ADD COLUMN IF NOT EXISTS chat_name TEXT
             """
         )
         await con.execute(
@@ -85,6 +92,7 @@ class PaymentWatchRepo(BaseRepo):
         self,
         *,
         chat_id: int,
+        chat_name: str | None,
         reply_message_id: int,
         address: str,
         our_address: str,
@@ -103,6 +111,7 @@ class PaymentWatchRepo(BaseRepo):
                     """
                     INSERT INTO payment_watches (
                         chat_id,
+                        chat_name,
                         reply_message_id,
                         address,
                         our_address,
@@ -112,10 +121,11 @@ class PaymentWatchRepo(BaseRepo):
                         status,
                         timeout_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     RETURNING id
                     """,
                     int(chat_id),
+                    str(chat_name) if chat_name else None,
                     int(reply_message_id),
                     str(address),
                     str(our_address),

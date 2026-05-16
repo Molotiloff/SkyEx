@@ -12,6 +12,8 @@ from services.payment_watch.message_builder import PaymentWatchMessageBuilder
 from services.payment_watch.models import PaymentWatchNotification
 from services.payment_watch.receipt_image import PaymentReceiptImageBuilder
 from services.payment_watch.tronscan_gateway import TronscanGateway
+from services.wallets.wallet_service import WalletService
+from utils.info import get_chat_name
 
 
 class PaymentWatchError(Exception):
@@ -27,11 +29,13 @@ class PaymentWatchService:
         *,
         repo,
         tronscan_gateway: TronscanGateway,
+        wallet_service: WalletService | None = None,
         timeout_seconds: int = 3 * 60 * 60,
         test_amount: Decimal = Decimal("1"),
     ) -> None:
         self.repo = repo
         self.tronscan_gateway = tronscan_gateway
+        self.wallet_service = wallet_service
         self.timeout_seconds = int(timeout_seconds)
         self.test_amount = Decimal(test_amount)
         self.builder = PaymentWatchMessageBuilder()
@@ -71,6 +75,7 @@ class PaymentWatchService:
         timeout_at = datetime.now(timezone.utc) + timedelta(seconds=self.timeout_seconds)
         watch_id = await self.repo.create_payment_watch(
             chat_id=message.chat.id,
+            chat_name=get_chat_name(message),
             reply_message_id=reply.message_id,
             address=address,
             our_address=our_address,
@@ -237,5 +242,25 @@ class PaymentWatchService:
                     photo_filename=f"payment_receipt_{watch_id}.png" if photo_bytes else None,
                 )
             )
+            if self.wallet_service is not None and (
+                transfer.to_address == our_address or transfer.from_address == our_address
+            ):
+                wallet_amount = transfer.amount if transfer.to_address == our_address else -transfer.amount
+                wallet_result = await self.wallet_service.apply_external_currency_change(
+                    chat_id=int(watch["chat_id"]),
+                    chat_name=str(watch.get("chat_name") or watch["chat_id"]),
+                    code="USDT",
+                    amount=wallet_amount,
+                    expr=f"{transfer.amount.normalize():f}",
+                    source="payment_watch",
+                    idempotency_key=f"payment_watch:{watch_id}:{transfer.tx_hash}:wallet",
+                )
+                notifications.append(
+                    PaymentWatchNotification(
+                        chat_id=int(watch["chat_id"]),
+                        reply_message_id=None,
+                        text=wallet_result.message_text,
+                    )
+                )
             break
         return notifications

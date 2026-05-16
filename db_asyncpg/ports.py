@@ -224,6 +224,7 @@ class PaymentWatchRepositoryPort(Protocol):
         self,
         *,
         chat_id: int,
+        chat_name: str | None,
         reply_message_id: int,
         address: str,
         our_address: str,

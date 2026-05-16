@@ -98,6 +98,29 @@ class WalletService:
     async def apply_currency_change(self, *, message: Message, parsed: ParsedCurrencyChange) -> WalletCommandResult:
         return await self.mutation_service.apply_currency_change(message=message, parsed=parsed)
 
+    async def apply_external_currency_change(
+        self,
+        *,
+        chat_id: int,
+        chat_name: str,
+        code: str,
+        amount,
+        expr: str,
+        extra_comment: str = "",
+        source: str = "external",
+        idempotency_key: str | None = None,
+    ) -> WalletCommandResult:
+        return await self.mutation_service.apply_external_currency_change(
+            chat_id=chat_id,
+            chat_name=chat_name,
+            code=code,
+            amount=amount,
+            expr=expr,
+            extra_comment=extra_comment,
+            source=source,
+            idempotency_key=idempotency_key,
+        )
+
     async def remove_currency_confirmed(
         self,
         *,

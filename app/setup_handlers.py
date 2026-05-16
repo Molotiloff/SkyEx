@@ -10,6 +10,7 @@ from config import Config
 from db_asyncpg.ports import (
     ActCounterLedgerRepositoryPort,
     ClientRepositoryPort,
+    ClientTransferRepositoryPort,
     ClientWalletRepositoryPort,
     ClientWalletScheduleRepositoryPort,
     ClientWalletTransactionRepositoryPort,
@@ -78,6 +79,7 @@ from services.rate_order import (
     RapiraWsService,
     RateOrderService,
 )
+from services.wallets import WalletService
 from services.xe_api import ConverterAPIService
 from utils.offices import OFFICE_CARDS
 
@@ -119,6 +121,7 @@ def setup_handlers(
     exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
     act_counter_repo = cast(ActCounterLedgerRepositoryPort, repo)
     payment_watch_repo = cast(PaymentWatchRepositoryPort, repo)
+    client_transfer_repo = cast(ClientTransferRepositoryPort, repo)
 
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map
@@ -129,6 +132,7 @@ def setup_handlers(
 
     services = AppServices()
     act_counter_service = ActCounterService(act_counter_repo)
+    payment_watch_wallet_service = WalletService(repo=client_transfer_repo)
     payment_watch_service = PaymentWatchService(
         repo=payment_watch_repo,
         tronscan_gateway=TronscanGateway(
@@ -138,6 +142,7 @@ def setup_handlers(
                 usdt_contract=config.tronscan_usdt_contract,
             )
         ),
+        wallet_service=payment_watch_wallet_service,
         timeout_seconds=config.payment_watch_timeout_seconds,
     )
     services.payment_watch_poller = PaymentWatchPoller(

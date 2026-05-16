@@ -32,6 +32,88 @@ class CurrencyMutationService:
         self.text_builder = text_builder or WalletTextBuilder()
         self.city_cash_media_store = city_cash_media_store
 
+    async def _apply_wallet_delta(
+        self,
+        *,
+        chat_id: int,
+        chat_name: str,
+        code: str,
+        amount: Decimal,
+        expr: str,
+        extra_comment: str,
+        source: str,
+        idempotency_key: str | None,
+        with_undo: bool,
+    ) -> WalletCommandResult:
+        client_id = await self.repo.ensure_client(chat_id, chat_name)
+        accounts = await self.repo.snapshot_wallet(client_id)
+        acc = next((r for r in accounts if str(r["currency_code"]).upper() == code), None)
+        if not acc:
+            return WalletCommandResult(
+                ok=False,
+                message_text=(
+                    f"Счёт {code} не найден.\n"
+                    f"Подсказка: добавьте валюту командой /добавь {code} [точность]"
+                ),
+            )
+
+        precision = int(acc["precision"]) if acc.get("precision") is not None else 2
+        q = Decimal(10) ** -precision
+        delta_quant = amount.copy_abs().quantize(q, rounding=ROUND_HALF_UP)
+
+        if delta_quant == 0:
+            min_step = format_amount_core(q, precision)
+            return WalletCommandResult(
+                ok=False,
+                message_text=(
+                    f"Сумма слишком мала для точности {precision}.\n"
+                    f"Минимальный шаг для {code.upper()}: {min_step} {code.lower()}"
+                ),
+            )
+
+        comment_for_txn = expr if not extra_comment else f"{expr} | {extra_comment}"
+
+        if amount > 0:
+            await self.repo.deposit(
+                client_id=client_id,
+                currency_code=code,
+                amount=delta_quant,
+                comment=comment_for_txn,
+                source=source,
+                idempotency_key=idempotency_key,
+            )
+            sign_flag = "+"
+        else:
+            await self.repo.withdraw(
+                client_id=client_id,
+                currency_code=code,
+                amount=delta_quant,
+                comment=comment_for_txn,
+                source=source,
+                idempotency_key=idempotency_key,
+            )
+            sign_flag = "-"
+
+        accounts2 = await self.repo.snapshot_wallet(client_id)
+        acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)
+        cur_bal = Decimal(str(acc2["balance"])) if acc2 else Decimal("0")
+        text = self.text_builder.currency_change_success(
+            code=code,
+            delta=delta_quant,
+            precision=precision,
+            sign=sign_flag,
+            balance=cur_bal,
+        )
+        reply_markup = None
+        if with_undo:
+            reply_markup = self.text_builder.undo_kb(code, sign_flag, f"{delta_quant}")
+
+        return WalletCommandResult(
+            ok=True,
+            message_text=text,
+            reply_markup=reply_markup,
+        )
+
     async def build_remove_currency_confirmation(
         self,
         *,
@@ -101,69 +183,19 @@ class CurrencyMutationService:
             bool(message.photo), bool(message.caption),
         )
 
-        client_id = await self.repo.ensure_client(chat_id, chat_name)
-        accounts = await self.repo.snapshot_wallet(client_id)
-        acc = next((r for r in accounts if str(r["currency_code"]).upper() == parsed.code), None)
-        if not acc:
-            return WalletCommandResult(
-                ok=False,
-                message_text=(
-                    f"Счёт {parsed.code} не найден.\n"
-                    f"Подсказка: добавьте валюту командой /добавь {parsed.code} [точность]"
-                ),
-            )
-
-        precision = int(acc["precision"]) if acc.get("precision") is not None else 2
-        q = Decimal(10) ** -precision
-        delta_quant = parsed.amount.copy_abs().quantize(q, rounding=ROUND_HALF_UP)
-
-        if delta_quant == 0:
-            min_step = format_amount_core(q, precision)
-            return WalletCommandResult(
-                ok=False,
-                message_text=(
-                    f"Сумма слишком мала для точности {precision}.\n"
-                    f"Минимальный шаг для {parsed.code.upper()}: {min_step} {parsed.code.lower()}"
-                ),
-            )
-
-        idem = f"{chat_id}:{message.message_id}"
-        comment_for_txn = parsed.expr if not parsed.extra_comment else f"{parsed.expr} | {parsed.extra_comment}"
-
-        if parsed.amount > 0:
-            await self.repo.deposit(
-                client_id=client_id,
-                currency_code=parsed.code,
-                amount=delta_quant,
-                comment=comment_for_txn,
-                source="command",
-                idempotency_key=idem,
-            )
-            sign_flag = "+"
-        else:
-            await self.repo.withdraw(
-                client_id=client_id,
-                currency_code=parsed.code,
-                amount=delta_quant,
-                comment=comment_for_txn,
-                source="command",
-                idempotency_key=idem,
-            )
-            sign_flag = "-"
-
-        accounts2 = await self.repo.snapshot_wallet(client_id)
-        acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == parsed.code), None)
-        cur_bal = Decimal(str(acc2["balance"])) if acc2 else Decimal("0")
-
-        amt_str = f"{delta_quant}"
-        text = self.text_builder.currency_change_success(
+        result = await self._apply_wallet_delta(
+            chat_id=chat_id,
+            chat_name=chat_name,
             code=parsed.code,
-            delta=delta_quant,
-            precision=precision,
-            sign=sign_flag,
-            balance=cur_bal,
+            amount=parsed.amount,
+            expr=parsed.expr,
+            extra_comment=parsed.extra_comment,
+            source="command",
+            idempotency_key=f"{chat_id}:{message.message_id}",
+            with_undo=True,
         )
-        reply_markup = self.text_builder.undo_kb(parsed.code, sign_flag, amt_str)
+        text = result.message_text
+        reply_markup = result.reply_markup
 
         if parsed.is_city_cash and parsed.client_name_for_transfer:
             res = await city_cash_transfer_to_client(
@@ -185,9 +217,33 @@ class CurrencyMutationService:
                 text += "\n✅ Транзакция проведена в чате у клиента!"
 
         return WalletCommandResult(
-            ok=True,
+            ok=result.ok,
             message_text=text,
             reply_markup=reply_markup,
+        )
+
+    async def apply_external_currency_change(
+        self,
+        *,
+        chat_id: int,
+        chat_name: str,
+        code: str,
+        amount: Decimal,
+        expr: str,
+        extra_comment: str = "",
+        source: str = "external",
+        idempotency_key: str | None = None,
+    ) -> WalletCommandResult:
+        return await self._apply_wallet_delta(
+            chat_id=chat_id,
+            chat_name=chat_name,
+            code=self.parser.normalize_code_alias(code),
+            amount=amount,
+            expr=expr,
+            extra_comment=extra_comment,
+            source=source,
+            idempotency_key=idempotency_key,
+            with_undo=False,
         )
 
     async def remove_currency_confirmed(
