@@ -160,7 +160,7 @@ class PaymentWatchService:
         for transfer in transfers:
             if transfer.tx_hash in seen_hashes:
                 continue
-            if transfer.confirmations < 3:
+            if transfer.confirmations < 1:
                 continue
             if not (
                 (transfer.from_address == our_address and transfer.to_address == address)

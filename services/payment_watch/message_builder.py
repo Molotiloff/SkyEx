@@ -19,14 +19,14 @@ class PaymentWatchMessageBuilder:
                 f"Адрес: <code>{safe}</code>\n"
                 "Сценарий: тестовая 1 USDT, затем основная.\n"
                 "Ищу переводы только между кошельками.\n"
-                "Подтверждение: 3 confirmations."
+                "Подтверждение: 1 confirmation."
                 f"{note_line}"
             )
         return (
             "⏳ Начал отслеживание отправки.\n"
             f"Адрес: <code>{safe}</code>\n"
             "Жду перевод USDT TRC-20  между кошельками.\n"
-            "Подтверждение: 3 confirmations."
+            "Подтверждение: 1 confirmation."
             f"{note_line}"
         )
 
