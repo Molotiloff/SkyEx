@@ -226,6 +226,7 @@ class PaymentWatchService:
                     amount=transfer.amount,
                     recipient_address=transfer.to_address,
                     tx_hash=transfer.tx_hash,
+                    block_ts=transfer.block_ts,
                 )
             except Exception as exc:
                 log.warning("Payment receipt image disabled: %s", exc)
