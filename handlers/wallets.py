@@ -32,14 +32,17 @@ class WalletsHandler:
         admin_chat_ids: Iterable[int] | None = None,
         admin_user_ids: Iterable[int] | None = None,
         *,
+        request_chat_id: int | None = None,
         ignore_chat_ids: Iterable[int] | None = None,
         city_cash_chat_ids: Iterable[int] | None = None,
     ) -> None:
         self.repo = repo
         self.admin_chat_ids = set(admin_chat_ids or [])
         self.admin_user_ids = set(admin_user_ids or [])
+        self.request_chat_id = int(request_chat_id) if request_chat_id is not None else None
         self.ignore_chat_ids = set(ignore_chat_ids or [])
         self.city_cash_chat_ids = set(city_cash_chat_ids or [])
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self.city_cash_media_store = CityCashMediaStore()
         wallet_repo = cast(ClientTransferRepositoryPort, repo)
         self.wallet_service = WalletService(
@@ -88,6 +91,12 @@ class WalletsHandler:
         if message.chat and message.chat.id in self.ignore_chat_ids:
             return
 
+        if self.request_chat_id is not None and int(message.chat.id) == self.request_chat_id:
+            await message.answer(
+                "В заявочном чате команды кошелька вида /usd, /usdt и т.д. недоступны."
+            )
+            return
+
         if (
             message.media_group_id
             and message.photo
@@ -98,10 +107,12 @@ class WalletsHandler:
                 media_group_id=message.media_group_id,
                 message=message,
             )
-            asyncio.create_task(
+            task = asyncio.create_task(
                 self._process_buffered_city_cash_command(message),
                 name=f"city_cash_album:{message.chat.id}:{message.media_group_id}:{message.message_id}",
             )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
             return
 
         text = message.text or message.caption or ""

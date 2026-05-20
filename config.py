@@ -117,7 +117,7 @@ class Config:
             (os.getenv("PAYMENT_WATCH_POLL_INTERVAL_SECONDS", "") or "30").strip()
         )
         payment_watch_timeout_seconds = int(
-            (os.getenv("PAYMENT_WATCH_TIMEOUT_SECONDS", "") or str(3 * 60 * 60)).strip()
+            (os.getenv("PAYMENT_WATCH_TIMEOUT_SECONDS", "") or str(15 * 60)).strip()
         )
 
         admin_chat_id = int(os.getenv("ADMIN_CHAT_ID", "0"))
