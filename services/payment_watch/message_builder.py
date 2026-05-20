@@ -68,10 +68,10 @@ class PaymentWatchMessageBuilder:
         )
 
     def build_timeout(self) -> str:
-        return "⌛ Отправка не подтверждена за 3 часа. Продолжить ожидание?"
+        return "⌛ Отправка не подтверждена за 15 минут. Продолжить ожидание?"
 
     def build_continued(self) -> str:
-        return "⏳ Ожидание отправки продлено ещё на 3 часа."
+        return "⏳ Ожидание отправки продлено ещё на 15 минут."
 
     def build_stopped(self) -> str:
         return "⛔ Ожидание отправки остановлено."

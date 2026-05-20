@@ -30,7 +30,7 @@ class PaymentWatchService:
         repo,
         tronscan_gateway: TronscanGateway,
         wallet_service: WalletService | None = None,
-        timeout_seconds: int = 3 * 60 * 60,
+        timeout_seconds: int = 15 * 60,
         test_amount: Decimal = Decimal("1"),
     ) -> None:
         self.repo = repo
