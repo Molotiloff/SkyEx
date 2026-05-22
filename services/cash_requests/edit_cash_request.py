@@ -40,6 +40,13 @@ class EditCashRequest(CashRequestUseCaseBase):
             await message.answer("Не похоже на карточку заявки.")
             return
 
+        old_entry = await self.repo.get_request_schedule_entry_by_req_id(req_id=src.req_id)
+        old_request_chat_id = int(old_entry["request_chat_id"]) if old_entry and old_entry.get("request_chat_id") else None
+        old_request_message_id = (
+            int(old_entry["request_message_id"]) if old_entry and old_entry.get("request_message_id") else None
+        )
+        old_city = str(old_entry["city"]).strip().lower() if old_entry and old_entry.get("city") else None
+
         if src.kind != parsed.kind:
             await message.answer("Нельзя менять тип заявки при редактировании (деп/выд/обмен).")
             return
@@ -191,19 +198,41 @@ class EditCashRequest(CashRequestUseCaseBase):
             return
 
         if ctx.request_chat_id:
-            edited_msg_ref = await self._edit_request_chat_message(
-                bot=message.bot,
-                req_id=src.req_id,
-                text_city=text_city,
-                city_markup=city_markup,
-            )
-
             sent_chat_id: int | None = None
             sent_message_id: int | None = None
+            same_request_chat = bool(
+                old_request_chat_id is not None
+                and int(old_request_chat_id) == int(ctx.request_chat_id)
+                and old_request_message_id is not None
+            )
 
-            if edited_msg_ref:
-                sent_chat_id, sent_message_id = edited_msg_ref
-            else:
+            if same_request_chat:
+                edited_msg_ref = await self._edit_request_chat_message(
+                    bot=message.bot,
+                    req_id=src.req_id,
+                    text_city=text_city,
+                    city_markup=city_markup,
+                )
+                if edited_msg_ref:
+                    sent_chat_id, sent_message_id = edited_msg_ref
+
+            if sent_chat_id is None or sent_message_id is None:
+                if (
+                    old_request_chat_id is not None
+                    and old_request_message_id is not None
+                    and (
+                        int(old_request_chat_id) != int(ctx.request_chat_id)
+                        or sent_chat_id is None
+                    )
+                ):
+                    try:
+                        await message.bot.delete_message(
+                            chat_id=int(old_request_chat_id),
+                            message_id=int(old_request_message_id),
+                        )
+                    except Exception:
+                        pass
+
                 try:
                     sent_city = await message.bot.send_message(
                         chat_id=ctx.request_chat_id,
@@ -229,5 +258,18 @@ class EditCashRequest(CashRequestUseCaseBase):
                     request_message_id=sent_message_id,
                     bot=message.bot,
                 )
+
+                if (
+                    old_city
+                    and old_city != ctx.city
+                    and self.router_service.pick_schedule_chat_for_city(old_city)
+                ):
+                    try:
+                        await self.schedule_service.sync_board(
+                            bot=message.bot,
+                            city=old_city,
+                        )
+                    except Exception:
+                        pass
 
         await message.answer("✅ Заявка обновлена.")
