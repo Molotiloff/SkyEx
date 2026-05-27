@@ -16,8 +16,7 @@ class UsdtWalletService:
         if not addr:
             return "USDT-кошелёк пока не задан."
         return (
-            f"<code>{html.escape(addr)}</code>\n"
-            "USDT TRC-20 кошелёк (нажмите, чтобы скопировать)\n"
+            f"<code>{html.escape(addr)}</code>"
         )
 
     async def set_from_text(self, text: str) -> str:
