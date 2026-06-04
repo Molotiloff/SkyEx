@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -217,6 +217,7 @@ def parse_report_preview(preview_html: str, amlcheckup: str, *, base_url: str, l
     if report_date:
         try:
             dt = datetime.strptime(report_date, "%Y-%m-%d %H:%M (UTC)")
+            dt = dt + timedelta(hours=5)
             formatted_date = dt.strftime("%d.%m.%Y %H:%M")
         except ValueError:
             pass
