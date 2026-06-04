@@ -12,7 +12,7 @@ from services.aml.getblock_settings import GetBlockSettings
 
 
 class AMLService:
-    _REPORT_PARSE_ATTEMPTS = 20
+    _REPORT_PARSE_ATTEMPTS = 60
     _REPORT_PARSE_DELAY_SECONDS = 3.0
 
     def __init__(self, *, settings: GetBlockSettings):
