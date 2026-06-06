@@ -48,6 +48,9 @@ class OrderbookService:
     def _title_asks(self) -> str:
         return f"〽️ Глубина стакана продаж для {self.symbol_label}"
 
+    def _title_bids(self) -> str:
+        return f"〽️ Глубина стакана покупок для {self.symbol_label}"
+
     def _title_bid(self) -> str:
         return f"〽️ Первый ордер на покупку для {self.symbol_label}"
 
@@ -164,6 +167,71 @@ class OrderbookService:
 
         return "\n".join(lines)
 
+    def build_bids_depth_text(
+        self,
+        *,
+        min_total_volume: Decimal = Decimal("500000"),
+        min_order_volume: Decimal = Decimal("1000"),
+    ) -> str:
+        if not self._is_ws_available():
+            return f"{self._title_bids()}\n\n{self._disabled_text()}"
+
+        try:
+            bids = self.ws_service.get_bids()
+        except Exception as e:
+            log.warning("Failed to get bids from ws_service: %r", e)
+            return f"{self._title_bids()}\n\nСтакан {self.exchange_name} пока недоступен."
+
+        if not bids:
+            return f"{self._title_bids()}\n\nСтакан {self.exchange_name} пока недоступен."
+
+        rows: list[tuple[Decimal, Decimal]] = []
+        total_volume = Decimal("0")
+
+        for item in bids:
+            try:
+                price = Decimal(str(item["price"]))
+                volume = Decimal(str(item["volume"]))
+            except Exception:
+                continue
+
+            if volume < min_order_volume:
+                continue
+
+            rows.append((price, volume))
+            total_volume += volume
+
+            if total_volume >= min_total_volume:
+                break
+
+        if not rows:
+            return f"{self._title_bids()}\n\nНет значимых ордеров (все < 1000)."
+
+        price_width = max(len("Цена"), *(len(self._fmt_num(p)) for p, _ in rows))
+        volume_width = max(len("Объём"), *(len(self._fmt_num(v)) for _, v in rows))
+
+        header = f"{'Цена'.ljust(price_width)} | {'Объём'.rjust(volume_width)}"
+        sep = "-" * (price_width + 3 + volume_width)
+
+        lines = [
+            self._title_bids(),
+            header,
+            sep,
+        ]
+
+        for price, volume in rows:
+            lines.append(
+                f"{self._fmt_num(price).rjust(price_width)} | {self._fmt_num(volume).rjust(volume_width)}"
+            )
+
+        lines += [
+            sep,
+            f"Всего объём: {self._fmt_num(total_volume)}",
+            f"Количество ордеров: {len(rows)}",
+        ]
+
+        return "\n".join(lines)
+
     def build_first_bid_text(self) -> str:
         if not self._is_ws_available():
             return f"{self._title_bid()}\n\n{self._disabled_text()}"
@@ -200,7 +268,7 @@ class OrderbookService:
 
         return (
             f"{self.build_asks_depth_text(min_total_volume=min_total_volume, min_order_volume=min_order_volume)}\n\n"
-            f"{self.build_first_bid_text()}\n\n"
+            f"{self.build_bids_depth_text(min_total_volume=min_total_volume, min_order_volume=min_order_volume)}\n\n"
             f"Актуально на {updated_at}"
         )
 

@@ -39,6 +39,13 @@ class GrinexBookHandler:
         await message.answer(text)
 
     @manager_or_admin_message_required
+    async def _cmd_garp(self, message: Message) -> None:
+        text = self.orderbook_service.build_bids_depth_text(
+            min_total_volume=Decimal("500000"),
+        )
+        await message.answer(text)
+
+    @manager_or_admin_message_required
     async def _cmd_gar_minus(self, message: Message) -> None:
         text = self.orderbook_service.build_first_bid_text()
         await message.answer(text)
@@ -60,5 +67,6 @@ class GrinexBookHandler:
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_gar, Command("гар"))
+        self.router.message.register(self._cmd_garp, Command("гарп"))
         self.router.message.register(self._cmd_gar_minus, Command("гар-"))
         self.router.message.register(self._cmd_gar_live, Command("гарред"))
