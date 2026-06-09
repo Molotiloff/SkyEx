@@ -5,7 +5,7 @@ from decimal import Decimal
 from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
-from services.act_counter import ActCounterService
+from services.act_counter import ActCounterService, AppliedExchangeMovement
 from services.exchange.balance_service import ExchangeBalanceService
 from services.exchange.calculator import ExchangeCalculator
 from services.exchange.cancel_exchange_request import CancelExchangeRequest
@@ -62,7 +62,7 @@ class AbstractExchangeHandler:
         cmd_msg_id: int,
         recv_is_deposit: bool,
         pay_is_withdraw: bool,
-    ) -> bool:
+    ) -> list[AppliedExchangeMovement]:
         return await self.balance_service.apply_edit_delta(
             client_id=client_id,
             old_request_text=old_request_text,
