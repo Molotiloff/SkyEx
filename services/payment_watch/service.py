@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 import logging
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from aiogram.types import Message
 
@@ -72,7 +72,7 @@ class PaymentWatchService:
 
         mode = "TEST_THEN_MAIN" if test_mode else "SINGLE"
         phase = "TEST" if test_mode else "MAIN"
-        timeout_at = datetime.now(timezone.utc) + timedelta(seconds=self.timeout_seconds)
+        timeout_at = datetime.now(UTC) + timedelta(seconds=self.timeout_seconds)
         watch_id = await self.repo.create_payment_watch(
             chat_id=message.chat.id,
             chat_name=get_chat_name(message),
@@ -98,7 +98,7 @@ class PaymentWatchService:
         if str(watch.get("status")) != "TIMED_OUT":
             raise PaymentWatchError("Это наблюдение уже не ожидает подтверждения продолжения.")
 
-        timeout_at = datetime.now(timezone.utc) + timedelta(seconds=self.timeout_seconds)
+        timeout_at = datetime.now(UTC) + timedelta(seconds=self.timeout_seconds)
         updated = await self.repo.continue_payment_watch(watch_id=watch_id, timeout_at=timeout_at)
         if not updated:
             raise PaymentWatchError("Не удалось продлить ожидание.")
@@ -121,7 +121,7 @@ class PaymentWatchService:
 
     async def poll_once(self) -> list[PaymentWatchNotification]:
         notifications: list[PaymentWatchNotification] = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         watches = await self.repo.list_watching_payment_watches(limit=100)
         for watch in watches:
             watch_id = int(watch["id"])
@@ -130,6 +130,7 @@ class PaymentWatchService:
             if timeout_at and timeout_at <= now:
                 changed = await self.repo.mark_payment_watch_timed_out(watch_id=watch_id)
                 if changed:
+                    log.info("Payment watch %s timed out", watch_id)
                     notifications.append(
                         PaymentWatchNotification(
                             chat_id=int(watch["chat_id"]),
@@ -188,6 +189,10 @@ class PaymentWatchService:
                     block_ts=transfer.block_ts,
                 )
                 await self.repo.set_payment_watch_phase(watch_id=watch_id, phase="MAIN")
+                log.info(
+                    "Payment watch %s test payment detected: tx=%s amount=%s",
+                    watch_id, transfer.tx_hash, transfer.amount,
+                )
                 phase = "MAIN"
                 seen_hashes.add(transfer.tx_hash)
                 notifications.append(
@@ -220,6 +225,10 @@ class PaymentWatchService:
                 block_ts=transfer.block_ts,
             )
             await self.repo.complete_payment_watch(watch_id=watch_id)
+            log.info(
+                "Payment watch %s confirmed (MAIN): tx=%s amount=%s %s confirmations=%s",
+                watch_id, transfer.tx_hash, transfer.amount, transfer.token_symbol, transfer.confirmations,
+            )
             photo_bytes: bytes | None = None
             try:
                 photo_bytes = self.receipt_builder.build_main_success(
@@ -228,7 +237,7 @@ class PaymentWatchService:
                     tx_hash=transfer.tx_hash,
                     block_ts=transfer.block_ts,
                 )
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — генерация чека best-effort: при сбое шлём уведомление без картинки
                 log.warning("Payment receipt image disabled: %s", exc)
             notifications.append(
                 PaymentWatchNotification(
@@ -255,6 +264,13 @@ class PaymentWatchService:
                     expr=f"{transfer.amount.normalize():f}",
                     source="payment_watch",
                     idempotency_key=f"payment_watch:{watch_id}:{transfer.tx_hash}:wallet",
+                )
+                log.info(
+                    "Payment watch %s wallet change applied: chat_id=%s amount=%s USDT tx=%s",
+                    watch_id,
+                    int(watch["chat_id"]),
+                    wallet_amount,
+                    transfer.tx_hash,
                 )
                 notifications.append(
                     PaymentWatchNotification(

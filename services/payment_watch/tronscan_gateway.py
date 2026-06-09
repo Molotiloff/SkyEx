@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -73,7 +73,7 @@ class TronscanGateway:
                 continue
             try:
                 amount = Decimal(str(quant_raw)) / (Decimal(10) ** decimals)
-                block_ts = datetime.fromtimestamp(int(block_ts_raw) / 1000, tz=timezone.utc)
+                block_ts = datetime.fromtimestamp(int(block_ts_raw) / 1000, tz=UTC)
             except (InvalidOperation, ValueError, TypeError):
                 continue
             confirmations = await self.get_confirmations(tx_hash=tx_hash)

@@ -23,15 +23,15 @@ from .wallets import WalletsHandler
 from .xe import XEHandler
 
 __all__ = [
+    "AMLHandler",
     "AcceptShortHandler",
     "ActHandler",
     "AdminRequestHandler",
-    "AMLHandler",
-    "ClientsBalancesHandler",
     "BroadcastAllHandler",
     "CalcHandler",
     "CashRequestsHandler",
     "CityAssignHandler",
+    "ClientsBalancesHandler",
     "ClientsHandler",
     "GrinexBookHandler",
     "ManagersHandler",

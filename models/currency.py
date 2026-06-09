@@ -1,6 +1,6 @@
 # models/currency.py
 
-class Currency(object):
+class Currency:
     def __init__(self, code, precision=2):
         code = code.strip().upper()
         if not code or len(code) > 12:
@@ -15,6 +15,4 @@ class Currency(object):
         self.precision = precision
 
     def __repr__(self):
-        return "Currency(code=%r precision=%r)" % (
-            self.code, self.precision
-        )
+        return f"Currency(code={self.code!r} precision={self.precision!r})"

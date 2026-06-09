@@ -79,10 +79,7 @@ def _parse(tokens):
             # Особая семантика процентов в +/-
             if isinstance(right, _Percent):
                 right = left * (right.value / Decimal(100))
-            if op == '+':
-                left = left + right
-            else:
-                left = left - right
+            left = left + right if op == '+' else left - right
         return left
 
     def parse_term():
@@ -125,7 +122,7 @@ def _parse(tokens):
             try:
                 val = Decimal(tok)
             except InvalidOperation:
-                raise CalcError("Некорректное число")
+                raise CalcError("Некорректное число") from None
             # суффиксный %
             if cur() == '%':
                 eat('%')

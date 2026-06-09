@@ -20,7 +20,7 @@ class ManagerAdminService:
             ok = await self.repo.add_manager(user_id=user_id, display_name=display_name)
             disp = f" — {html.escape(display_name)}" if display_name else ""
             return (
-                "✅ Добавлен менеджер: <code>{}</code>{}".format(user_id, disp)
+                f"✅ Добавлен менеджер: <code>{user_id}</code>{disp}"
                 if ok
                 else "❌ Не удалось добавить менеджера."
             )
@@ -30,7 +30,7 @@ class ManagerAdminService:
             user_id = int(m_del.group(1))
             ok = await self.repo.remove_manager(user_id=user_id)
             return (
-                "✅ Удалён менеджер: <code>{}</code>".format(user_id)
+                f"✅ Удалён менеджер: <code>{user_id}</code>"
                 if ok
                 else "❌ Менеджер не найден."
             )

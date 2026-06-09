@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
-from typing import Mapping, Sequence
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from utils.calc import CalcError, evaluate
 from utils.info import _fmt_rate

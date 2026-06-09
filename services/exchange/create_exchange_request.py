@@ -4,15 +4,16 @@ import html
 import logging
 import random
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from keyboards import request_keyboard
+from services.cash_requests import post_request_message
 from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
 from services.exchange.use_case_base import _ExchangeUseCaseBase
 from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
 from utils.req_index import req_index
-from services.cash_requests import post_request_message
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                         or (f"@{user.username}" if getattr(user, "username", None) else None)
                         or f"id:{user.id}"
                     )
-            except Exception:
+            except AttributeError:
                 pass
             creator_name = creator_name or "unknown"
 
@@ -112,8 +113,14 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                     tracked_currency_codes=tracked_currency_codes,
                 )
             except Exception as leg_err:
+                log.exception("apply_create failed for exchange request %s", req_id)
                 await message.answer(f"Не удалось выполнить обмен: {leg_err}")
                 return
+
+            log.info(
+                "Exchange request %s applied: %s %s -> %s %s (rate %s)",
+                req_id, recv_amount, recv_code, pay_amount, pay_code, rate_text,
+            )
 
             try:
                 client_card_text = texts.request_text if is_request_chat_origin else texts.client_text
@@ -128,7 +135,8 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                     reply_to_message_id=message.message_id,
                     reply_markup=client_card_kb,
                 )
-            except Exception:
+            except TelegramAPIError as e:
+                log.warning("Failed to send client card for exchange request %s: %r", req_id, e)
                 sent = None
 
             if sent is not None:
@@ -257,4 +265,5 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                     await message.answer(f"<code>{safe_title}\n\n{safe_rows}</code>", parse_mode="HTML")
 
         except Exception as e:
+            log.exception("Exchange request creation failed")
             await message.answer(f"Не удалось выполнить операцию: {e}")

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 
 from aiogram.types import InlineKeyboardMarkup
 
@@ -44,7 +44,7 @@ def _req_title(kind: str) -> str:
     return "Заявка на обмен"
 
 
-def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, Optional[InlineKeyboardMarkup]]:
+def build_client_card_dep_wd(data: CardDataDepWd) -> tuple[str, InlineKeyboardMarkup | None]:
     """
     Карточка клиенту: без audit, код в spoiler, без кнопок.
     """
@@ -109,7 +109,7 @@ def build_city_card_dep_wd(
     return text, markup
 
 
-def build_client_card_fx(data: CardDataFx) -> tuple[str, Optional[InlineKeyboardMarkup]]:
+def build_client_card_fx(data: CardDataFx) -> tuple[str, InlineKeyboardMarkup | None]:
     """
     FX клиенту: без audit, без кнопок.
     """

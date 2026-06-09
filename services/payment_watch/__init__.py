@@ -5,10 +5,10 @@ from .service import PaymentWatchError, PaymentWatchService
 from .tronscan_gateway import TronscanGateway, TronscanGatewayError, TronscanSettings
 
 __all__ = [
+    "PaymentReceiptImageBuilder",
     "PaymentWatchError",
     "PaymentWatchMessageBuilder",
     "PaymentWatchPoller",
-    "PaymentReceiptImageBuilder",
     "PaymentWatchService",
     "TronscanGateway",
     "TronscanGatewayError",

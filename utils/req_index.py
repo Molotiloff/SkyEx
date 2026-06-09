@@ -1,5 +1,6 @@
 # utils/req_index.py
 from __future__ import annotations
+
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -17,12 +18,12 @@ class ReqIndex:
     """
 
     def __init__(self, maxsize: int = 5000) -> None:
-        self._m: "OrderedDict[tuple[int,int], ReqLink]" = OrderedDict()
+        self._m: OrderedDict[tuple[int,int], ReqLink] = OrderedDict()
         self._max = maxsize
-        self._request_chat_links: "OrderedDict[str, tuple[int, int]]" = OrderedDict()
-        self._request_chat_texts: "OrderedDict[str, str]" = OrderedDict()
-        self._table_done_flags: "OrderedDict[str, bool]" = OrderedDict()
-        self._table_req_ids: "OrderedDict[str, str]" = OrderedDict()
+        self._request_chat_links: OrderedDict[str, tuple[int, int]] = OrderedDict()
+        self._request_chat_texts: OrderedDict[str, str] = OrderedDict()
+        self._table_done_flags: OrderedDict[str, bool] = OrderedDict()
+        self._table_req_ids: OrderedDict[str, str] = OrderedDict()
 
     def remember(self, chat_id: int, user_cmd_msg_id: int, bot_msg_id: int, req_id: str) -> None:
         key = (chat_id, user_cmd_msg_id)

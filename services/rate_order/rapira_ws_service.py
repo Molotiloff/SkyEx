@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
 import ssl
-from decimal import Decimal
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from decimal import Decimal, InvalidOperation
 
 import certifi
 import websockets
@@ -68,10 +69,8 @@ class RapiraWsService:
         self._stopped = True
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     def get_asks(self) -> list[dict]:
         return list(self.asks)
@@ -84,7 +83,7 @@ class RapiraWsService:
             return None
         try:
             return Decimal(str(self.bids[0]["price"]))
-        except Exception:
+        except (KeyError, IndexError, TypeError, InvalidOperation):
             return None
 
     async def _notify_best_ask(self, best_ask: Decimal) -> None:
@@ -96,8 +95,8 @@ class RapiraWsService:
             result = cb(best_ask)
             if inspect.isawaitable(result):
                 await result
-        except Exception as e:
-            log.warning("Rapira on_best_ask callback error: %r", e)
+        except Exception:
+            log.exception("Rapira on_best_ask callback error")
 
     async def _notify_orderbook_update(self) -> None:
         cb = self.on_orderbook_update
@@ -108,8 +107,8 @@ class RapiraWsService:
             result = cb()
             if inspect.isawaitable(result):
                 await result
-        except Exception as e:
-            log.warning("Rapira on_orderbook_update callback error: %r", e)
+        except Exception:
+            log.exception("Rapira on_orderbook_update callback error")
 
     @staticmethod
     def _normalize_items(items: list[dict], *, reverse_price: bool) -> list[dict]:
@@ -119,7 +118,7 @@ class RapiraWsService:
             try:
                 price = Decimal(str(item["price"]))
                 amount = Decimal(str(item["amount"]))
-            except Exception:
+            except (KeyError, TypeError, InvalidOperation):
                 continue
 
             normalized.append(
@@ -164,7 +163,7 @@ class RapiraWsService:
                 Decimal(str(self.asks[0]["price"]))
                 if self.asks else None
             )
-        except Exception:
+        except (KeyError, IndexError, TypeError, InvalidOperation):
             self.best_ask = None
 
         await self._notify_orderbook_update()
@@ -188,7 +187,7 @@ class RapiraWsService:
 
         try:
             data = json.loads(raw[2:])
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             return
 
         if not isinstance(data, list) or len(data) < 2:
@@ -274,8 +273,8 @@ class RapiraWsService:
                     log.info("Rapira websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)
 
-            except Exception as e:
-                log.warning("Rapira websocket error: %r", e)
+            except Exception:
+                log.exception("Rapira websocket error")
                 if not self._stopped:
                     log.info("Rapira websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)

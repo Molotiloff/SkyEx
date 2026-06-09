@@ -3,13 +3,21 @@ from __future__ import annotations
 
 import calendar
 import io
-from datetime import datetime, timezone, timedelta
+import logging
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from aiogram.types import CallbackQuery, BufferedInputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
 from db_asyncpg.ports import ClientTransactionRepositoryPort
 from utils.info import get_chat_name
+
+log = logging.getLogger(__name__)
 
 
 def statements_kb() -> InlineKeyboardMarkup:
@@ -29,8 +37,8 @@ def statements_kb() -> InlineKeyboardMarkup:
 def _month_bounds(dt: datetime) -> tuple[datetime, datetime]:
     """Начало и конец месяца в UTC [start, end_exclusive)."""
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    start = dt.astimezone(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        dt = dt.replace(tzinfo=UTC)
+    start = dt.astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     days = calendar.monthrange(start.year, start.month)[1]
     end = start + timedelta(days=days)  # начало следующего месяца
     return start, end
@@ -76,7 +84,7 @@ def _build_statement_xlsx(rows: list[dict], chat_name: str, period_label: str) -
 
         # Excel datetime без tz; конвертируем в UTC naive
         if isinstance(ts, datetime) and ts.tzinfo is not None:
-            ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+            ts = ts.astimezone(UTC).replace(tzinfo=None)
 
         if isinstance(ts, datetime):
             ws.write_datetime(r, 0, ts, fmt_dt)
@@ -119,12 +127,12 @@ async def handle_stmt_callback(cq: CallbackQuery, repo: ClientTransactionReposit
     data = (cq.data or "")
     try:
         kind = data.split(":", 1)[1]
-    except Exception:
+    except IndexError:
         await cq.answer("Некорректные данные", show_alert=True)
         return
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if kind == "month":
             dt_from, dt_to = _month_bounds(now)
             period_label = f"{dt_from:%Y-%m-01} — {(dt_to - timedelta(seconds=1)):%Y-%m-%d %H:%M} UTC"
@@ -155,5 +163,6 @@ async def handle_stmt_callback(cq: CallbackQuery, repo: ClientTransactionReposit
         await msg.answer_document(file, caption=f"Выписка: {period_label}")
         await cq.answer("Готово")
     except Exception as e:
+        log.exception("Failed to build statement")
         await msg.answer(f"Не удалось сформировать выписку: {e}")
         await cq.answer("Ошибка", show_alert=True)

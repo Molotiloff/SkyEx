@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 _TRON_BASE58_RE = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
 
 

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from gutils.requests_sheet import SheetsWriteError
 from services.request_table.message_builder import RequestTableMessageBuilder
 from services.request_table.session_store import RequestTableSessionStore
 from services.request_table.sheets_trade_gateway import SheetsTradeGateway
+from utils.errors import suppress_telegram_edit_errors
 
 
 class RequestTableDeleteInteractionService:
@@ -31,10 +33,8 @@ class RequestTableDeleteInteractionService:
         if not cq.message or cq.message.chat.id not in self.allowed:
             await cq.answer("Недоступно здесь.", show_alert=True)
             return
-        try:
+        with suppress_telegram_edit_errors(context="table delete: keep rows"):
             await cq.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
         await cq.answer("Оставляем строки в таблицах.")
 
     async def handle_yes(self, cq: CallbackQuery) -> None:
@@ -49,11 +49,9 @@ class RequestTableDeleteInteractionService:
 
         try:
             await cq.message.edit_reply_markup(reply_markup=self.message_builder.processing_kb())
-        except Exception:
-            try:
+        except TelegramAPIError:
+            with suppress_telegram_edit_errors(context="table delete: strip keyboard"):
                 await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
         self.session_store.add_pending(self._SCOPE, key)
         try:
@@ -87,11 +85,9 @@ class RequestTableDeleteInteractionService:
         try:
             await cq.message.edit_text(new_text, parse_mode="HTML", reply_markup=None)
             self.session_store.mark(self._SCOPE, key)
-        except Exception:
-            try:
+        except TelegramAPIError:
+            with suppress_telegram_edit_errors(context="table delete: strip keyboard after status"):
                 await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
         await cq.answer(
             self.message_builder.deleted_summary(

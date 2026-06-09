@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 from typing import cast
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
 from db_asyncpg.repo import Repo
 from services.act_counter import ActCounterService
 from services.exchange import AcceptShortService
 from utils.auth import (
-    require_manager_or_admin_message,
     require_manager_or_admin_callback,
+    require_manager_or_admin_message,
 )
 
 

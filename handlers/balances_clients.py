@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from services.client_balances import DailyBalancesReportService, MINUS_CHARS, PLUS_CHARS
+from services.client_balances import MINUS_CHARS, PLUS_CHARS, DailyBalancesReportService
 
 
 class ClientsBalancesHandler:
@@ -70,6 +70,6 @@ class ClientsBalancesHandler:
         self.router.message.register(
             self._cmd_balances,
             F.text.regexp(
-                rf"(?iu)^/бк(?:@\w+)?(?:\s+\S+(?:\s+[+\-−–—])?\s*)?$"
+                r"(?iu)^/бк(?:@\w+)?(?:\s+\S+(?:\s+[+\-−–—])?\s*)?$"
             ),
         )

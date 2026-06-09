@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 _SEP = {" ", "\u00A0", "\u202F", "\u2009", "'", "’", "ʼ", "‛", "`"}
 _RE_GET = re.compile(r"^Получаем:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.M | re.I)
@@ -24,7 +24,7 @@ def parse_amount_code(payload: str) -> tuple[Decimal, str] | None:
 
     try:
         return Decimal(amount_raw), code.strip().upper()
-    except Exception:
+    except InvalidOperation:
         return None
 
 

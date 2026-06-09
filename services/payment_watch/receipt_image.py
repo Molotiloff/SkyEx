@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
-import logging
 from pathlib import Path
 
 try:
@@ -69,7 +69,7 @@ def _pick_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
         if Path(path).exists():
             try:
                 return ImageFont.truetype(path, size=size)
-            except Exception:
+            except OSError:
                 continue
     return ImageFont.load_default()
 
@@ -125,9 +125,9 @@ class PaymentReceiptImageBuilder:
         bottom_inner = plate_y2 - pad_bottom
         row_band = (bottom_inner - top_inner) / 4
 
-        divider1_y = int(round(top_inner + row_band))
-        divider2_y = int(round(top_inner + row_band * 2))
-        divider3_y = int(round(top_inner + row_band * 3))
+        divider1_y = round(top_inner + row_band)
+        divider2_y = round(top_inner + row_band * 2)
+        divider3_y = round(top_inner + row_band * 3)
 
         tx_text, tx_font = self._fit_text_font(
             text=tx_hash,
@@ -355,4 +355,4 @@ class PaymentReceiptImageBuilder:
         bottom = max(left_bbox[3], right_bbox[3])
         center_y = (band_top + band_bottom) / 2
         baseline_y = center_y - ((top + bottom) / 2)
-        return int(round(baseline_y))
+        return round(baseline_y)

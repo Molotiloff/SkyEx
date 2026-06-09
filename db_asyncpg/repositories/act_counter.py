@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from db_asyncpg.pool import get_pool
 from db_asyncpg.repositories.base import BaseRepo
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 import time
 import urllib.parse
@@ -197,10 +198,8 @@ class GetBlockAMLClient:
 
         content_type = resp.headers.get("content-type", "")
         if "application/json" in content_type:
-            try:
+            with contextlib.suppress(ValueError):
                 result["json"] = resp.json()
-            except ValueError:
-                pass
 
         amlcheckup = extract_amlcheckup_from_redirect_header(result["headers"])
         if amlcheckup:
@@ -246,10 +245,8 @@ class GetBlockAMLClient:
 
         content_type = resp.headers.get("content-type", "")
         if "application/json" in content_type:
-            try:
+            with contextlib.suppress(ValueError):
                 result["json"] = resp.json()
-            except ValueError:
-                pass
 
         return result
 

@@ -1,7 +1,7 @@
 # handlers/nonzero.py
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from services.admin_client import NonZeroWalletQueryService
 

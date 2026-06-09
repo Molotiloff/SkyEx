@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
 from services.act_counter import ActCounterService
 from services.act_counter.text_builder import ActCounterTextBuilder
 from services.exchange.balance_service import ExchangeBalanceService
 from services.exchange.calculator import ExchangeCalculator
 from services.exchange.text_builder import ExchangeTextBuilder
+
+log = logging.getLogger(__name__)
 
 
 class _ExchangeUseCaseBase:
@@ -28,9 +32,20 @@ class _ExchangeUseCaseBase:
         self.act_text_builder = ActCounterTextBuilder()
 
     async def _get_exchange_request_meta(self, client_req_id: str) -> dict | None:
+        """Метаданные привязки заявки (опциональное обогащение) или None.
+
+        «Не найдено» возвращается как None самим запросом (нет строки).
+        Операционный сбой БД тоже деградирует в None — вызыватели корректно
+        работают без меты, — но, в отличие от «не найдено», логируется с
+        трейсбэком, чтобы сбой не оставался невидимым.
+        """
         try:
             return await self.repo.get_exchange_request_link(client_req_id=str(client_req_id))
         except Exception:
+            log.exception(
+                "Failed to load exchange request meta for client_req_id=%s",
+                client_req_id,
+            )
             return None
 
     async def _notify_act_current_amount(self, *, bot, request_chat_id: int | None) -> None:
@@ -46,4 +61,9 @@ class _ExchangeUseCaseBase:
                 parse_mode="HTML",
             )
         except Exception:
-            return
+            # Side-channel уведомление об остатке акта — best-effort: не должно
+            # ломать основной поток, но сбой логируем (раньше молча гасился).
+            log.exception(
+                "Failed to notify act current amount for chat_id=%s",
+                request_chat_id,
+            )

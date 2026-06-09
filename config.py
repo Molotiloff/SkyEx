@@ -1,5 +1,6 @@
 import os
 from dataclasses import dataclass
+
 from services.aml.getblock_settings import GetBlockSettings
 
 
@@ -94,7 +95,7 @@ class Config:
         try:
             from dotenv import load_dotenv
             load_dotenv()
-        except Exception:
+        except ImportError:
             pass
 
         token = os.getenv("BOT_TOKEN", "").strip()

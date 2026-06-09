@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import html
 import logging
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
-from typing import Callable
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 
 from db_asyncpg.ports import RateOrderRepositoryPort
 
@@ -167,7 +168,7 @@ class RateOrderService:
         try:
             commission = Decimal(commission_text.replace(",", "."))
         except InvalidOperation:
-            raise ValueError("Комиссия должна быть числом. Пример: /курс -0.5 или /курс +0.5")
+            raise ValueError("Комиссия должна быть числом. Пример: /курс -0.5 или /курс +0.5") from None
 
         requested_rate = Decimal(str(order["requested_rate"]))
         target_ask = requested_rate + commission
@@ -195,8 +196,13 @@ class RateOrderService:
                 text=text,
                 parse_mode="HTML",
             )
-        except Exception:
-            pass
+        except TelegramAPIError as e:
+            log.warning(
+                "Failed to edit rate-order reply chat_id=%s message_id=%s: %r",
+                reply_chat_id,
+                reply_message_id,
+                e,
+            )
 
         return await self.repo.get_rate_order_by_id(int(order["id"]))
 
@@ -214,7 +220,7 @@ class RateOrderService:
             try:
                 target_ask = Decimal(str(order["target_ask"]))
                 commission = Decimal(str(order["commission"]))
-            except Exception:
+            except (KeyError, TypeError, InvalidOperation):
                 continue
 
             if commission < 0:
@@ -267,7 +273,7 @@ class RateOrderService:
                     text=updated_order_text,
                     parse_mode="HTML",
                 )
-            except Exception as e:
+            except TelegramAPIError as e:
                 log.warning(
                     "Failed to edit triggered order message chat_id=%s message_id=%s: %r",
                     order_chat_id,
@@ -281,7 +287,7 @@ class RateOrderService:
                     text=client_text,
                     parse_mode="HTML",
                 )
-            except Exception as e:
+            except TelegramAPIError as e:
                 log.warning("Failed to notify client chat_id=%s: %r", client_chat_id, e)
 
             try:
@@ -291,5 +297,5 @@ class RateOrderService:
                     parse_mode="HTML",
                     reply_to_message_id=order_message_id,
                 )
-            except Exception as e:
+            except TelegramAPIError as e:
                 log.warning("Failed to notify orders chat: %r", e)

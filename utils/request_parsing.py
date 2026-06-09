@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional, Mapping
 
 # Участник: @telegram или +телефон (6–15 цифр)
 _PART_RE = re.compile(r"^(?:@[A-Za-z0-9_]{2,}|\+\d{6,15})$")
@@ -76,7 +76,7 @@ def parse_dep_wd(
     cmd_map: Mapping[str, tuple[str, str]],   # CMD_MAP
     city_keys: set[str],
     default_city: str,
-) -> Optional[ParsedRequest]:
+) -> ParsedRequest | None:
     """
     Новое:
       /депр [город] <amount_expr> [contact1] [contact2] [! comment]
@@ -134,7 +134,7 @@ def parse_fx(
     fx_cmd_map: Mapping[str, tuple[str, str, str]],
     city_keys: set[str],
     default_city: str,
-) -> Optional[ParsedRequest]:
+) -> ParsedRequest | None:
     """
     Новое:
       /првд [город] <amt_in_expr> <amt_out_expr> [contact1] [contact2] [! comment]

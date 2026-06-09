@@ -6,7 +6,7 @@ from typing import Any
 
 from db_asyncpg.pool import get_pool
 from db_asyncpg.repositories.base import BaseRepo
-from db_asyncpg.utils import quantize_amount, to_upper
+from db_asyncpg.utils import SqlParams, quantize_amount, to_upper
 
 
 class TransactionsRepo(BaseRepo):
@@ -92,29 +92,27 @@ class TransactionsRepo(BaseRepo):
     ) -> list[dict[str, Any]]:
         pool = await get_pool()
         async with pool.acquire() as con:
-            where = ["account_id = $1"]
-            params: list[Any] = [account_id]
+            p = SqlParams()
+            where = [f"account_id = {p.add(account_id)}"]
 
             if since is not None:
-                where.append("txn_at >= $%d" % (len(params) + 1))
-                params.append(self._normalize_dt(since))
+                where.append(f"txn_at >= {p.add(self._normalize_dt(since))}")
             if until is not None:
-                where.append("txn_at <  $%d" % (len(params) + 1))
-                params.append(self._normalize_dt(until))
+                where.append(f"txn_at <  {p.add(self._normalize_dt(until))}")
             if cursor_txn_at is not None and cursor_id is not None:
-                where.append("(txn_at, id) < ($%d::timestamptz, $%d)" % (len(params) + 1, len(params) + 2))
-                params.extend([cursor_txn_at, cursor_id])
+                where.append(
+                    f"(txn_at, id) < ({p.add(cursor_txn_at)}::timestamptz, {p.add(cursor_id)})"
+                )
 
             sql = f"""
                 SELECT id, txn_at, amount, balance_after, group_id, actor_id, comment, source
                 FROM transactions
                 WHERE {' AND '.join(where)}
                 ORDER BY txn_at DESC, id DESC
-                LIMIT $%d
-            """ % (len(params) + 1)
-            params.append(limit)
+                LIMIT {p.add(limit)}
+            """
 
-            rows = await con.fetch(sql, *params)
+            rows = await con.fetch(sql, *p.values)
             return [dict(r) for r in rows]
 
     async def export_transactions(
@@ -129,17 +127,14 @@ class TransactionsRepo(BaseRepo):
 
         pool = await get_pool()
         async with pool.acquire() as con:
+            p = SqlParams()
             where = ["TRUE"]
-            params: list[Any] = []
             if client_id is not None:
-                where.append("t.client_id = $%d" % (len(params) + 1))
-                params.append(client_id)
+                where.append(f"t.client_id = {p.add(client_id)}")
             if since_dt is not None:
-                where.append("t.txn_at >= $%d" % (len(params) + 1))
-                params.append(since_dt)
+                where.append(f"t.txn_at >= {p.add(since_dt)}")
             if until_dt is not None:
-                where.append("t.txn_at <  $%d" % (len(params) + 1))
-                params.append(until_dt)
+                where.append(f"t.txn_at <  {p.add(until_dt)}")
 
             sql = f"""
                 SELECT
@@ -166,5 +161,5 @@ class TransactionsRepo(BaseRepo):
                 WHERE {' AND '.join(where)}
                 ORDER BY t.txn_at, t.id
             """
-            rows = await con.fetch(sql, *params)
+            rows = await con.fetch(sql, *p.values)
             return [dict(r) for r in rows]

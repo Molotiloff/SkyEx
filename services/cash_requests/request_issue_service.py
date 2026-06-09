@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 import re
 from decimal import Decimal
-from typing import Optional
 
 from aiogram.types import CallbackQuery
 
@@ -10,9 +10,12 @@ from db_asyncpg.ports import ManagedClientWalletTransactionRepositoryPort
 from keyboards.request import CB_ISSUE_DONE
 from services.cash_requests.legacy_request_parsing import parse_kind_amount_code
 from utils.auth import require_manager_or_admin_callback
+from utils.errors import suppress_telegram_edit_errors
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.request_text_parser import detect_kind_from_card, parse_amount_code_line
+
+log = logging.getLogger(__name__)
 
 _RE_LINE_AMOUNT = re.compile(r"^\s*Сумма:\s*(?:<code>)?(.+?)(?:</code>)?\s*$", re.I | re.M)
 
@@ -45,12 +48,12 @@ class RequestIssueService:
 
         text = msg.text or ""
 
-        op_kind: Optional[str] = None
+        op_kind: str | None = None
         try:
             parts = (cq.data or "").split(":")
             if len(parts) >= 3 and ":".join(parts[:2]) == CB_ISSUE_DONE:
                 op_kind = parts[2].lower()
-        except Exception:
+        except (IndexError, AttributeError):
             op_kind = None
 
         if not op_kind:
@@ -103,14 +106,15 @@ class RequestIssueService:
                     idempotency_key=idem,
                 )
         except Exception as e:
+            log.exception("Cash issue wallet op failed (chat_id=%s, code=%s)", chat_id, code)
             await cq.message.answer(f"Не удалось провести операцию по кошельку: {e}")
             await cq.answer()
             return
 
-        try:
+        log.info("Cash issue %s applied: chat_id=%s amount=%s %s", op_kind, chat_id, amount, code)
+
+        with suppress_telegram_edit_errors(context="cash issue: strip keyboard"):
             await msg.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
         accounts2 = await self.repo.snapshot_wallet(client_id)
         acc2 = next((r for r in accounts2 if str(r["currency_code"]).upper() == code), None)

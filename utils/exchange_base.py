@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from decimal import Decimal
 
 from aiogram.types import CallbackQuery, Message
@@ -15,7 +14,7 @@ from services.exchange.edit_exchange_request import EditExchangeRequest
 from services.exchange.text_builder import ExchangeTextBuilder
 
 
-class AbstractExchangeHandler(ABC):
+class AbstractExchangeHandler:
     """
     Базовый фасад обмена.
 

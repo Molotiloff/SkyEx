@@ -1,8 +1,13 @@
 # utils/tg_migrate.py
 from __future__ import annotations
 
-from typing import Awaitable, Callable, TypeVar
+import logging
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
 from aiogram.exceptions import TelegramBadRequest
+
+log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -13,7 +18,7 @@ def _extract_migrate_to_chat_id(err: TelegramBadRequest) -> int | None:
     if mig:
         try:
             return int(mig)
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     s = str(err)
@@ -28,7 +33,7 @@ def _extract_migrate_to_chat_id(err: TelegramBadRequest) -> int | None:
                 else:
                     break
             return int(num) if num else None
-        except Exception:
+        except (ValueError, IndexError):
             return None
     return None
 
@@ -55,6 +60,10 @@ async def send_with_migrate_retry(
             try:
                 await repo.update_client_chat_id(client_id=client_id, new_chat_id=new_chat_id)
             except Exception:
-                pass
+                log.exception(
+                    "Failed to persist migrated chat_id %s for client %s",
+                    new_chat_id,
+                    client_id,
+                )
 
         return await send_call(new_chat_id), new_chat_id

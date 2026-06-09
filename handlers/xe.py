@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from typing import Iterable
+import logging
+from collections.abc import Iterable
 
 from aiogram import Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from db_asyncpg.ports import ManagerRepositoryPort
-from services.xe_formatter import ResponseFormatter
 from services.xe_api import ConverterAPIError, ConverterAPIService
+from services.xe_formatter import ResponseFormatter
 from utils.auth import manager_or_admin_message_required
+
+log = logging.getLogger(__name__)
 
 
 class XEHandler:
@@ -50,9 +54,6 @@ class XEHandler:
         except ConverterAPIError as exc:
             await message.answer(f"❌ {exc}")
             return
-        except Exception:
-            await message.answer("❌ Не удалось получить ответ от сервиса конвертации")
-            return
 
         text = self.formatter.build_message_text(result)
 
@@ -64,8 +65,8 @@ class XEHandler:
                     parse_mode="HTML",
                 )
                 return
-            except Exception:
-                pass
+            except TelegramAPIError as exc:
+                log.debug("reply_photo failed, falling back to text: %s", exc)
 
         await message.reply(text, parse_mode="HTML")
 

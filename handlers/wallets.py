@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Iterable
+from collections.abc import Iterable
 from typing import cast
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from db_asyncpg.ports import ClientTransferRepositoryPort
-from db_asyncpg.ports import ClientTransactionRepositoryPort
+from db_asyncpg.ports import ClientTransactionRepositoryPort, ClientTransferRepositoryPort
 from db_asyncpg.repo import Repo
 from services.wallets import WalletInteractionService, WalletService
 from services.wallets.city_cash_media_store import CityCashMediaStore
@@ -19,6 +18,7 @@ from utils.auth import (
     manager_or_admin_message_required,
     require_manager_or_admin_message,
 )
+from utils.errors import suppress_telegram_edit_errors
 from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
@@ -198,17 +198,13 @@ class WalletsHandler:
                 amt_str=amt_str,
             )
 
-            try:
+            if result.ok:
                 old_text = cq.message.text or ""
-                if result.ok:
+                with suppress_telegram_edit_errors(context="wallet undo"):
                     await cq.message.edit_text(old_text + "\n↩️ Отменено.")
-            except Exception:
-                pass
 
-            try:
+            with suppress_telegram_edit_errors(context="wallet undo"):
                 await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
             await cq.message.answer(result.message_text, parse_mode="HTML")
             await cq.answer("Откат выполнен" if result.ok else result.message_text[:100], show_alert=not result.ok)

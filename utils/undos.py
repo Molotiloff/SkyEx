@@ -1,7 +1,6 @@
 # utils/undos.py
 import asyncio
 from collections import OrderedDict
-from typing import Tuple
 
 
 class UndoRegistry:
@@ -11,15 +10,15 @@ class UndoRegistry:
     """
 
     def __init__(self, maxsize: int = 20000) -> None:
-        self._seen: "OrderedDict[Tuple[int, int], bool]" = OrderedDict()
+        self._seen: OrderedDict[tuple[int, int], bool] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max = maxsize
 
-    async def is_done(self, key: Tuple[int, int]) -> bool:
+    async def is_done(self, key: tuple[int, int]) -> bool:
         async with self._lock:
             return key in self._seen
 
-    async def mark_done(self, key: Tuple[int, int]) -> None:
+    async def mark_done(self, key: tuple[int, int]) -> None:
         async with self._lock:
             self._seen[key] = True
             self._seen.move_to_end(key)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import logging
 import re
 
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import Message
 
 from db_asyncpg.ports import ManagerRepositoryPort
@@ -18,6 +19,8 @@ from utils.request_text_parser import (
     starts_with_request,
     upsert_time_line,
 )
+
+log = logging.getLogger(__name__)
 
 _RE_TIME_CMD = re.compile(
     r"^/время(?:@\w+)?\s+((?:[01]?\d|2[0-3]):[0-5]\d)\s*$",
@@ -107,7 +110,8 @@ class RequestTimeService:
                 return
             await message.answer(f"Не удалось обновить заявку: {e}")
             return
-        except Exception as e:
+        except TelegramAPIError as e:
+            log.warning("Failed to update cash request time message: %r", e)
             await message.answer(f"Не удалось обновить заявку: {e}")
             return
 
@@ -151,6 +155,6 @@ class RequestTimeService:
                         city=city,
                     )
                 except Exception:
-                    pass
+                    log.exception("Failed to sync schedule board for city %s", city)
 
         await message.answer(f"✅ Время добавлено: {hhmm}")

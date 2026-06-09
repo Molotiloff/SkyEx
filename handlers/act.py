@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import InvalidOperation
-from typing import Iterable
 
 from aiogram import Router
 from aiogram.filters import Command

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 
 from db_asyncpg.ports import RequestScheduleRepositoryPort
 from services.cash_requests.models import ScheduleEntry
@@ -159,7 +159,7 @@ class RequestScheduleService:
                             board_chat_id,
                             board_message_id,
                         )
-                    except Exception as del_e:
+                    except TelegramAPIError as del_e:
                         log.warning(
                             "Failed to delete old schedule board city=%s chat_id=%s message_id=%s: %r",
                             city_norm,
@@ -176,13 +176,12 @@ class RequestScheduleService:
                     )
                     return
 
-            except Exception as e:
-                log.warning(
-                    "Unexpected error editing schedule board city=%s chat_id=%s message_id=%s: %r",
+            except Exception:
+                log.exception(
+                    "Unexpected error editing schedule board city=%s chat_id=%s message_id=%s",
                     city_norm,
                     board_chat_id,
                     board_message_id,
-                    e,
                 )
                 return
 

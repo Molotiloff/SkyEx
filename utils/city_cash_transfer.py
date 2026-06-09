@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional, Awaitable, Callable
+from decimal import ROUND_HALF_UP, Decimal
 
 from aiogram import Bot
-from aiogram.types import InputMediaPhoto, Message
 from aiogram.exceptions import TelegramMigrateToChat
+from aiogram.types import InputMediaPhoto, Message
 
 from db_asyncpg.ports import ClientTransferRepositoryPort
 from services.wallets.city_cash_media_store import CityCashMediaStore
@@ -29,7 +29,7 @@ class CityTransferResult:
     pretty_balance: str | None = None
 
 
-def _pick_photo_file_id(message: Message) -> Optional[str]:
+def _pick_photo_file_id(message: Message) -> str | None:
     if not message.photo:
         return None
     return message.photo[-1].file_id

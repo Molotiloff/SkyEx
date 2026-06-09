@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 
 class BaseRepo:
@@ -20,12 +20,9 @@ class BaseRepo:
             try:
                 dt = datetime.fromisoformat(v)
             except ValueError:
-                raise ValueError(f"Invalid datetime string: {v!r}")
+                raise ValueError(f"Invalid datetime string: {v!r}") from None
         else:
             raise TypeError("Unsupported datetime type")
 
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
         return dt

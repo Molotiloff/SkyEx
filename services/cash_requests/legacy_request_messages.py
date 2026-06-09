@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, Message
 
@@ -11,7 +9,7 @@ async def post_request_message(
     request_chat_id: int,
     text: str,
     *,
-    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    reply_markup: InlineKeyboardMarkup | None = None,
     disable_notification: bool = False,
 ) -> Message:
     return await bot.send_message(

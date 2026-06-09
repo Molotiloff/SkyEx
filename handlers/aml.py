@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from aiogram import Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import Message
 
@@ -52,7 +53,7 @@ class AMLHandler:
         async def on_success(result: dict) -> None:
             try:
                 await wait_msg.edit_text(result["message_text"])
-            except Exception:
+            except TelegramAPIError:
                 await message.answer(result["message_text"])
 
         async def on_error(exc: Exception) -> None:

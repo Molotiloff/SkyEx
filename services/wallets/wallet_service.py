@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 from typing import cast
 
 from aiogram.types import InlineKeyboardMarkup, Message
@@ -10,8 +10,8 @@ from db_asyncpg.ports import (
     ClientWalletRepositoryPort,
     ClientWalletTransactionRepositoryPort,
 )
-from services.wallets.command_parser import WalletCommandParser
 from services.wallets.city_cash_media_store import CityCashMediaStore
+from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
 from services.wallets.mutation_service import CurrencyMutationService
 from services.wallets.query_service import WalletQueryService

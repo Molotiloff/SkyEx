@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from services.cash_requests.request_use_case_base import CashRequestUseCaseBase
@@ -17,6 +19,8 @@ from utils.request_cards import (
     build_client_card_fx,
 )
 from utils.request_parsing import ParsedRequest
+
+log = logging.getLogger(__name__)
 
 
 class CreateCashRequest(CashRequestUseCaseBase):
@@ -148,7 +152,8 @@ class CreateCashRequest(CashRequestUseCaseBase):
                     parse_mode="HTML",
                     reply_markup=city_markup,
                 )
-            except Exception:
+            except TelegramAPIError as e:
+                log.warning("Failed to send city request message: %r", e)
                 sent_city = None
 
             if sent_city and schedule_line:

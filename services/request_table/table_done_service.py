@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 
 from gutils.requests_sheet import SheetsWriteError
@@ -117,7 +117,7 @@ class RequestTableDoneService:
         if not isinstance(message_dt, datetime):
             return None
         if message_dt.tzinfo is None:
-            message_dt = message_dt.replace(tzinfo=timezone.utc)
+            message_dt = message_dt.replace(tzinfo=UTC)
         return message_dt.astimezone(timezone(timedelta(hours=5)))
 
     def write_by_payload(

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import logging
 from decimal import Decimal, InvalidOperation
 
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.types import Message
 
 from services.cash_requests.request_use_case_base import CashRequestUseCaseBase
 from utils.calc import CalcError, evaluate
+from utils.errors import suppress_telegram_edit_errors
 from utils.formatting import format_amount_core
 from utils.request_audit import audit_lines_for_request_chat, make_audit_for_edit
 from utils.request_cards import (
@@ -24,6 +26,8 @@ from utils.request_text_parser import (
     parse_dep_wd_snapshot,
     parse_fx_snapshot,
 )
+
+log = logging.getLogger(__name__)
 
 
 class EditCashRequest(CashRequestUseCaseBase):
@@ -193,7 +197,8 @@ class EditCashRequest(CashRequestUseCaseBase):
             if "message is not modified" not in str(e).lower():
                 await message.answer(f"Не удалось отредактировать заявку: {e}")
                 return
-        except Exception as e:
+        except TelegramAPIError as e:
+            log.warning("Failed to edit cash request client message: %r", e)
             await message.answer(f"Не удалось отредактировать заявку: {e}")
             return
 
@@ -225,13 +230,11 @@ class EditCashRequest(CashRequestUseCaseBase):
                         or sent_chat_id is None
                     )
                 ):
-                    try:
+                    with suppress_telegram_edit_errors(context="edit cash: delete old request msg"):
                         await message.bot.delete_message(
                             chat_id=int(old_request_chat_id),
                             message_id=int(old_request_message_id),
                         )
-                    except Exception:
-                        pass
 
                 try:
                     sent_city = await message.bot.send_message(
@@ -242,7 +245,8 @@ class EditCashRequest(CashRequestUseCaseBase):
                     )
                     sent_chat_id = int(sent_city.chat.id)
                     sent_message_id = int(sent_city.message_id)
-                except Exception:
+                except TelegramAPIError as e:
+                    log.warning("Failed to send city request message: %r", e)
                     sent_chat_id = None
                     sent_message_id = None
 
@@ -270,6 +274,6 @@ class EditCashRequest(CashRequestUseCaseBase):
                             city=old_city,
                         )
                     except Exception:
-                        pass
+                        log.exception("Failed to sync schedule board for city %s", old_city)
 
         await message.answer("✅ Заявка обновлена.")

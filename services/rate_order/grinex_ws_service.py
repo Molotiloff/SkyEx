@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
 import logging
 import ssl
-from decimal import Decimal
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from decimal import Decimal, InvalidOperation
 
 import certifi
 import websockets
@@ -53,10 +54,8 @@ class GrinexWsService:
         self._stopped = True
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
 
     async def _notify_best_ask(self, best_ask: Decimal) -> None:
         cb = self.on_best_ask
@@ -67,8 +66,8 @@ class GrinexWsService:
             result = cb(best_ask)
             if inspect.isawaitable(result):
                 await result
-        except Exception as e:
-            log.warning("Grinex on_best_ask callback error: %r", e)
+        except Exception:
+            log.exception("Grinex on_best_ask callback error")
 
     async def _notify_orderbook_update(self) -> None:
         cb = self.on_orderbook_update
@@ -79,8 +78,8 @@ class GrinexWsService:
             result = cb()
             if inspect.isawaitable(result):
                 await result
-        except Exception as e:
-            log.warning("Grinex on_orderbook_update callback error: %r", e)
+        except Exception:
+            log.exception("Grinex on_orderbook_update callback error")
 
     def get_asks(self) -> list[dict]:
         return list(self.asks)
@@ -93,7 +92,7 @@ class GrinexWsService:
             return None
         try:
             return Decimal(str(self.bids[0]["price"]))
-        except Exception:
+        except (KeyError, IndexError, TypeError, InvalidOperation):
             return None
 
     async def _run(self) -> None:
@@ -116,7 +115,7 @@ class GrinexWsService:
                     async for raw in ws:
                         try:
                             data = json.loads(raw)
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError):
                             continue
 
                         book = data.get("usdta7a5.orderbook")
@@ -140,7 +139,7 @@ class GrinexWsService:
 
                         try:
                             best_ask = Decimal(str(asks[0]["price"]))
-                        except Exception:
+                        except (KeyError, IndexError, TypeError, InvalidOperation):
                             continue
 
                         if self.best_ask == best_ask:
@@ -161,8 +160,8 @@ class GrinexWsService:
                 if not self._stopped:
                     log.info("Grinex websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)
-            except Exception as e:
-                log.warning("Grinex websocket error: %r", e)
+            except Exception:
+                log.exception("Grinex websocket error")
                 if not self._stopped:
                     log.info("Grinex websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)

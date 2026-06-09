@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -113,7 +113,7 @@ class PaymentWatchHandler:
             try:
                 Decimal(note_token.replace(",", "."))
             except (InvalidOperation, ValueError):
-                raise PaymentWatchError("Комментарий-сумма должен быть числом. Примеры: /отпр 10000, /отпр тест 10000")
+                raise PaymentWatchError("Комментарий-сумма должен быть числом. Примеры: /отпр 10000, /отпр тест 10000") from None
             return test_mode, note_token
 
         return test_mode, None

@@ -2,20 +2,25 @@
 from __future__ import annotations
 
 import html
+import logging
 import random
 import re
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
-from typing import Iterable, Optional
+from collections.abc import Iterable
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
-from aiogram import Router, F
+import asyncpg
+from aiogram import F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.types import Message
 
 from db_asyncpg.repo import Repo
-from utils.calc import evaluate, CalcError
+from services.cash_requests import post_request_message
+from utils.calc import CalcError, evaluate
 from utils.formatting import format_amount_core
 from utils.info import _fmt_rate
-from services.cash_requests import post_request_message
+
+log = logging.getLogger(__name__)
 
 
 class AdminRequestHandler:
@@ -55,7 +60,7 @@ class AdminRequestHandler:
         self.repo = repo
         self.admin_chat_id = int(admin_chat_id)
         self.request_chat_id = int(request_chat_id)
-        self.admin_user_ids = set(int(x) for x in (admin_user_ids or []))
+        self.admin_user_ids = {int(x) for x in (admin_user_ids or [])}
         self.router = Router()
         self._register()
 
@@ -112,8 +117,8 @@ class AdminRequestHandler:
                 return 2
             return 2
 
-        recv_prec: Optional[int] = None
-        pay_prec: Optional[int] = None
+        recv_prec: int | None = None
+        pay_prec: int | None = None
         try:
             client_id = await self.repo.ensure_client(chat_id=self.admin_chat_id, name="admin")
             accs = await self.repo.snapshot_wallet(client_id)
@@ -123,8 +128,9 @@ class AdminRequestHandler:
                     recv_prec = int(r["precision"])
                 if c == pay_code.upper():
                     pay_prec = int(r["precision"])
-        except Exception:
-            pass
+        except (asyncpg.PostgresError, KeyError, ValueError):
+            # Best-effort: card is display-only (no balance change), fall back to defaults.
+            log.warning("Failed to read account precision for request card; using defaults", exc_info=True)
 
         recv_prec = recv_prec if recv_prec is not None else default_precision(recv_code)
         pay_prec = pay_prec if pay_prec is not None else default_precision(pay_code)
@@ -179,7 +185,8 @@ class AdminRequestHandler:
                 text=request_text,
                 reply_markup=None,
             )
-        except Exception as e:
+        except TelegramAPIError as e:
+            log.exception("Failed to post request card to request chat %s", self.request_chat_id)
             await message.answer(f"Не удалось отправить заявку в заявочный чат: {e}")
             return
 

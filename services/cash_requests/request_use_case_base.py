@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import random
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from db_asyncpg.ports import ClientWalletScheduleRepositoryPort
@@ -9,6 +11,8 @@ from services.cash_requests.models import RequestContext, ScheduleEntry
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.info import get_chat_name
+
+log = logging.getLogger(__name__)
 
 
 class CashRequestUseCaseBase:
@@ -111,7 +115,7 @@ class CashRequestUseCaseBase:
                     city=city,
                 )
             except Exception:
-                pass
+                log.exception("Failed to sync schedule board for city %s", city)
 
     async def _sync_schedule_keep_existing_time(
         self,
@@ -149,7 +153,7 @@ class CashRequestUseCaseBase:
                     city=city,
                 )
             except Exception:
-                pass
+                log.exception("Failed to sync schedule board for city %s", city)
 
     async def _edit_request_chat_message(
         self,
@@ -177,5 +181,6 @@ class CashRequestUseCaseBase:
                 reply_markup=city_markup,
             )
             return int(old_chat_id), int(old_message_id)
-        except Exception:
+        except TelegramAPIError as e:
+            log.warning("Failed to edit request-chat message for req %s: %r", req_id, e)
             return None

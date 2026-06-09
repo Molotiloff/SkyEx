@@ -5,7 +5,6 @@ import html
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 from aiogram.types import Message
 
@@ -35,7 +34,7 @@ def actor_from_message(message: Message) -> str:
     return f"id:{u.id}"
 
 
-def created_by_from_old_text(old_text: str) -> Optional[str]:
+def created_by_from_old_text(old_text: str) -> str | None:
     """
     Пробуем извлечь 'Создал: ...' из старой карточки (клиентской).
     """

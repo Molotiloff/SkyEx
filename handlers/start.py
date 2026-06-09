@@ -1,7 +1,7 @@
 # handlers/start.py
 from aiogram import Router
-from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
+from aiogram.filters import Command, CommandStart
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from keyboards import MainKeyboard
 from services.admin_client import ClientBootstrapService

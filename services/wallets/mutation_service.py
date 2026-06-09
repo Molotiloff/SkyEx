@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
 from aiogram.types import Message
 
 from db_asyncpg.ports import ClientTransferRepositoryPort
 from keyboards import rmcur_confirm_kb
-from services.wallets.command_parser import WalletCommandParser
 from services.wallets.city_cash_media_store import CityCashMediaStore
+from services.wallets.command_parser import WalletCommandParser
 from services.wallets.models import ParsedCurrencyChange, WalletCommandResult
 from services.wallets.text_builder import WalletTextBuilder
 from utils.city_cash_transfer import city_cash_transfer_to_client
@@ -165,6 +165,7 @@ class CurrencyMutationService:
                 message_text=f"✅ Валюта {code} добавлена (символов после запятой = {precision})",
             )
         except Exception as e:
+            log.exception("Failed to add currency %s for client %s", code, client_id)
             return WalletCommandResult(
                 ok=False,
                 message_text=f"Не удалось добавить валюту: {e}",
@@ -265,4 +266,5 @@ class CurrencyMutationService:
                 message_text=f"Не удалось удалить {code}: счёт не найден или уже отключён.",
             )
         except Exception as e:
+            log.exception("Failed to remove currency %s for client %s", code, client_id)
             return WalletCommandResult(ok=False, message_text=f"Ошибка удаления {code}: {e}")

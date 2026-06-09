@@ -1,11 +1,16 @@
-from typing import Iterable
+import logging
+from collections.abc import Iterable
 
-from aiogram import Router, F
+import asyncpg
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from keyboards import confirm_kb
 from services.admin_client import ClientDirectoryService
+from utils.errors import suppress_telegram_edit_errors
+
+log = logging.getLogger(__name__)
 
 
 class ClientsHandler:
@@ -64,36 +69,30 @@ class ClientsHandler:
             if kind != "rmcli":
                 return
             chat_id_to_remove = int(chat_id_str)
-        except Exception:
+        except ValueError:
             await cq.answer("Некорректные данные.", show_alert=True)
             return
 
         if answer == "no":
-            try:
-                old = cq.message.text or ""
+            old = cq.message.text or ""
+            with suppress_telegram_edit_errors(context="rmclient cancel"):
                 await cq.message.edit_text(old + "\nОтменено.", parse_mode="HTML")
-            except Exception:
-                pass
-            try:
+            with suppress_telegram_edit_errors(context="rmclient cancel"):
                 await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
             await cq.answer("Отмена")
             return
 
         try:
             new_text = await self.service.confirm_remove(chat_id_to_remove)
-            try:
-                await cq.message.edit_text(new_text, parse_mode="HTML")
-            except Exception:
-                pass
-            try:
-                await cq.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
-            await cq.answer("Готово")
-        except Exception as e:
+        except asyncpg.PostgresError as e:
+            log.exception("Failed to remove client %s", chat_id_to_remove)
             await cq.answer(f"Ошибка: {e}", show_alert=True)
+            return
+        with suppress_telegram_edit_errors(context="rmclient confirm"):
+            await cq.message.edit_text(new_text, parse_mode="HTML")
+        with suppress_telegram_edit_errors(context="rmclient confirm"):
+            await cq.message.edit_reply_markup(reply_markup=None)
+        await cq.answer("Готово")
 
     def _register(self) -> None:
         self.router.message.register(self._cmd_clients, Command("клиенты"))

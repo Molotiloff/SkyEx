@@ -1,5 +1,5 @@
 # keyboards/confirm.py
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def rmcur_confirm_kb(code: str) -> InlineKeyboardMarkup:

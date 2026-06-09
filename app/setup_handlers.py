@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot, Dispatcher
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import Config
 from db_asyncpg.ports import (
@@ -31,6 +31,8 @@ from handlers import (
     ActHandler,
     AdminRequestHandler,
     AMLHandler,
+    BroadcastAllHandler,
+    CalcHandler,
     CashRequestsHandler,
     CityAssignHandler,
     ClientsBalancesHandler,
@@ -48,10 +50,8 @@ from handlers import (
     debug_router,
     get_table_delete_router,
     get_table_done_router,
-    CalcHandler,
-    BroadcastAllHandler,
 )
-from services.aml import AMLQueueService, AMLService
+from services.act_counter import ActCounterService
 from services.admin_client import (
     ClientBootstrapService,
     ClientDirectoryService,
@@ -60,7 +60,7 @@ from services.admin_client import (
     NonZeroWalletQueryService,
     UsdtWalletService,
 )
-from services.act_counter import ActCounterService
+from services.aml import AMLQueueService, AMLService
 from services.client_balances import (
     ClientBalancesFilterService,
     ClientBalancesQueryService,
@@ -112,13 +112,13 @@ def setup_handlers(
     wallet_repo = cast(WalletRepositoryPort, repo)
     client_wallet_repo = cast(ClientWalletRepositoryPort, repo)
     client_wallet_tx_repo = cast(ClientWalletTransactionRepositoryPort, repo)
-    managed_client_wallet_tx_repo = cast(ManagedClientWalletTransactionRepositoryPort, repo)
-    client_wallet_schedule_repo = cast(ClientWalletScheduleRepositoryPort, repo)
-    managed_client_wallet_schedule_repo = cast(ManagedClientWalletScheduleRepositoryPort, repo)
+    cast(ManagedClientWalletTransactionRepositoryPort, repo)
+    cast(ClientWalletScheduleRepositoryPort, repo)
+    cast(ManagedClientWalletScheduleRepositoryPort, repo)
     live_message_repo = cast(LiveMessageRepositoryPort, repo)
     rate_order_repo = cast(RateOrderRepositoryPort, repo)
     exchange_request_repo = cast(ExchangeRequestRepositoryPort, repo)
-    exchange_workflow_repo = cast(ExchangeWorkflowRepositoryPort, repo)
+    cast(ExchangeWorkflowRepositoryPort, repo)
     act_counter_repo = cast(ActCounterLedgerRepositoryPort, repo)
     payment_watch_repo = cast(PaymentWatchRepositoryPort, repo)
     client_transfer_repo = cast(ClientTransferRepositoryPort, repo)

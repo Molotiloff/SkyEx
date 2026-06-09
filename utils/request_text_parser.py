@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
-from typing import Optional
 
 from services.cash_requests.models import DepWdCardSnapshot, FxCardSnapshot, RequestEditSource
 
@@ -59,7 +58,7 @@ def starts_with_request(text: str) -> bool:
     return _RE_REQUEST_TITLE_ANYWHERE.search(text or "") is not None
 
 
-def detect_kind_from_card(text: str) -> Optional[str]:
+def detect_kind_from_card(text: str) -> str | None:
     if _RE_TITLE_DEP.search(text) or _RE_KIND_DEP_LEGACY.search(text):
         return "dep"
     if _RE_TITLE_WD.search(text) or _RE_KIND_WD_LEGACY.search(text):
@@ -69,7 +68,7 @@ def detect_kind_from_card(text: str) -> Optional[str]:
     return None
 
 
-def extract_edit_source(old_text: str) -> Optional[RequestEditSource]:
+def extract_edit_source(old_text: str) -> RequestEditSource | None:
     m_req = _RE_REQ_ID_ANY.search(old_text)
     m_pin = _RE_LINE_PIN.search(old_text)
     if not (m_req and m_pin):
@@ -87,7 +86,7 @@ def extract_edit_source(old_text: str) -> Optional[RequestEditSource]:
     )
 
 
-def parse_amount_code_line(blob: str) -> Optional[tuple[Decimal, str]]:
+def parse_amount_code_line(blob: str) -> tuple[Decimal, str] | None:
     try:
         amt_str, code = blob.rsplit(" ", 1)
     except ValueError:
@@ -105,7 +104,7 @@ def parse_amount_code_line(blob: str) -> Optional[tuple[Decimal, str]]:
     return amt, code.strip().upper()
 
 
-def parse_dep_wd_snapshot(old_text: str, *, city: str) -> Optional[DepWdCardSnapshot]:
+def parse_dep_wd_snapshot(old_text: str, *, city: str) -> DepWdCardSnapshot | None:
     src = extract_edit_source(old_text)
     if not src or src.kind not in ("dep", "wd"):
         return None
@@ -129,7 +128,7 @@ def parse_dep_wd_snapshot(old_text: str, *, city: str) -> Optional[DepWdCardSnap
     )
 
 
-def parse_fx_snapshot(old_text: str, *, city: str) -> Optional[FxCardSnapshot]:
+def parse_fx_snapshot(old_text: str, *, city: str) -> FxCardSnapshot | None:
     src = extract_edit_source(old_text)
     if not src or src.kind != "fx":
         return None

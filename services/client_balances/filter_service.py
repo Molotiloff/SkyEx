@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Iterable
 
 from services.client_balances.query_service import ClientBalanceRow
 

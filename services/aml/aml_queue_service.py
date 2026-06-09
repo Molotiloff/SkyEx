@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from services.aml.aml_service import AMLService
 
@@ -35,10 +36,8 @@ class AMLQueueService:
         self._stopped = True
         if self._worker_task:
             self._worker_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
-            except asyncio.CancelledError:
-                pass
         log.info("AML queue worker stopped")
 
     async def enqueue(self, task: AMLQueueTask) -> int:
@@ -54,7 +53,7 @@ class AMLQueueService:
             try:
                 result = await asyncio.to_thread(self.aml_service.check_wallet, task.wallet)
                 await task.on_success(result)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — фоновый воркер: любой сбой задачи логируем, отдаём в on_error, продолжаем
                 log.warning("AML task failed wallet=%s err=%r", task.wallet, e)
                 await task.on_error(e)
             finally:

@@ -1,6 +1,7 @@
 # models/wallet.py
 
-from decimal import Decimal, ROUND_HALF_UP, getcontext
+from decimal import ROUND_HALF_UP, Decimal, getcontext
+
 from models.currency import Currency
 
 getcontext().prec = 28
@@ -10,7 +11,7 @@ class WalletError(Exception):
     pass
 
 
-class Wallet(object):
+class Wallet:
     def __init__(self, chat_id):
         self.chat_id = chat_id
         self._currencies = {}
@@ -19,7 +20,7 @@ class Wallet(object):
     def ensure_currency(self, code):
         code = code.strip().upper()
         if code not in self._currencies:
-            raise WalletError("Валюта %s не найдена в кошельке" % code)
+            raise WalletError(f"Валюта {code} не найдена в кошельке")
 
     def add_currency(self, currency: Currency) -> None:
         """

@@ -7,11 +7,11 @@ from .usdt_wallet_service import SETTING_KEY as USDT_WALLET_SETTING_KEY
 from .usdt_wallet_service import UsdtWalletService
 
 __all__ = [
+    "USDT_WALLET_SETTING_KEY",
     "ClientBootstrapService",
     "ClientDirectoryService",
     "ClientGroupService",
     "ManagerAdminService",
     "NonZeroWalletQueryService",
-    "USDT_WALLET_SETTING_KEY",
     "UsdtWalletService",
 ]

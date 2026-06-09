@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from handlers.office_cards import OfficeCard
 
 OFFICE_CARDS: dict[str, OfficeCard] = {

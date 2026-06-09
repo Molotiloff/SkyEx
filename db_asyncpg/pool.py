@@ -1,8 +1,7 @@
-from typing import Optional
+
 import asyncpg
 
-
-_pool: Optional[asyncpg.Pool] = None
+_pool: asyncpg.Pool | None = None
 
 
 async def create_pool(dsn: str, min_size: int = 1, max_size: int = 10) -> asyncpg.Pool:
@@ -23,4 +22,3 @@ async def close_pool() -> None:
     if _pool is not None:
         await _pool.close()
     _pool = None
-    

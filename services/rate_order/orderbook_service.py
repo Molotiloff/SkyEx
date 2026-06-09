@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
@@ -15,6 +15,11 @@ log = logging.getLogger("orderbook_service")
 
 class OrderbookService:
     LIVE_MESSAGE_KEY = "orderbook_live"
+    # Минимальный интервал между правками «живого» сообщения со стаканом.
+    # Обновления стакана приходят по WS много раз в секунду; частые edit'ы
+    # одного сообщения Telegram наказывает флуд-контролем (RetryAfter до
+    # десятков секунд). Коалесцируем апдейты в одну правку раз в N секунд.
+    MIN_REFRESH_INTERVAL_SECONDS = 5.0
 
     def __init__(
         self,
@@ -36,6 +41,7 @@ class OrderbookService:
         self._refresh_lock = asyncio.Lock()
         self._pending_refresh = False
         self._retry_after_until = 0.0
+        self._last_edit_at = 0.0
 
     @staticmethod
     def _fmt_num(v: Decimal) -> str:
@@ -113,7 +119,7 @@ class OrderbookService:
 
         try:
             asks = self.ws_service.get_asks()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — защитная граница к внешнему ws_service
             log.warning("Failed to get asks from ws_service: %r", e)
             return f"{self._title_asks()}\n\nСтакан {self.exchange_name} пока недоступен."
 
@@ -127,7 +133,7 @@ class OrderbookService:
             try:
                 price = Decimal(str(item["price"]))
                 volume = Decimal(str(item["volume"]))
-            except Exception:
+            except (KeyError, TypeError, InvalidOperation):
                 continue
 
             if volume < min_order_volume:
@@ -178,7 +184,7 @@ class OrderbookService:
 
         try:
             bids = self.ws_service.get_bids()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — защитная граница к внешнему ws_service
             log.warning("Failed to get bids from ws_service: %r", e)
             return f"{self._title_bids()}\n\nСтакан {self.exchange_name} пока недоступен."
 
@@ -192,7 +198,7 @@ class OrderbookService:
             try:
                 price = Decimal(str(item["price"]))
                 volume = Decimal(str(item["volume"]))
-            except Exception:
+            except (KeyError, TypeError, InvalidOperation):
                 continue
 
             if volume < min_order_volume:
@@ -238,7 +244,7 @@ class OrderbookService:
 
         try:
             bids = self.ws_service.get_bids()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — защитная граница к внешнему ws_service
             log.warning("Failed to get bids from ws_service: %r", e)
             return f"{self._title_bid()}\n\nСтакан {self.exchange_name} пока недоступен."
 
@@ -249,7 +255,7 @@ class OrderbookService:
             first = bids[0]
             price = Decimal(str(first["price"]))
             volume = Decimal(str(first["volume"]))
-        except Exception:
+        except (KeyError, IndexError, TypeError, InvalidOperation):
             return f"{self._title_bid()}\n\nСтакан {self.exchange_name} пока недоступен."
 
         return (
@@ -287,9 +293,16 @@ class OrderbookService:
                 while self._live_chat_id and self._live_message_id:
                     self._pending_refresh = False
 
+                    # Троттлинг: не чаще одной правки в MIN_REFRESH_INTERVAL_SECONDS,
+                    # плюс уважаем активный retry_after от Telegram. Ждём под локом —
+                    # параллельные апдейты просто выставят _pending_refresh и выйдут.
                     now = loop.time()
-                    if now < self._retry_after_until:
-                        await asyncio.sleep(self._retry_after_until - now)
+                    wait_until = max(
+                        self._retry_after_until,
+                        self._last_edit_at + self.MIN_REFRESH_INTERVAL_SECONDS,
+                    )
+                    if now < wait_until:
+                        await asyncio.sleep(wait_until - now)
 
                     text = self.build_live_text()
 
@@ -299,6 +312,7 @@ class OrderbookService:
                             message_id=self._live_message_id,
                             text=text,
                         )
+                        self._last_edit_at = loop.time()
                         return
 
                     except TelegramRetryAfter as e:
@@ -319,6 +333,7 @@ class OrderbookService:
                         err = str(e).lower()
 
                         if "message is not modified" in err:
+                            self._last_edit_at = loop.time()
                             return
 
                         if "message to edit not found" in err or "chat not found" in err:
@@ -333,12 +348,11 @@ class OrderbookService:
                         )
                         return
 
-                    except Exception as e:
-                        log.warning(
-                            "Unexpected error updating live message chat_id=%s message_id=%s: %r",
+                    except Exception:
+                        log.exception(
+                            "Unexpected error updating live message chat_id=%s message_id=%s",
                             self._live_chat_id,
                             self._live_message_id,
-                            e,
                         )
                         return
         finally:

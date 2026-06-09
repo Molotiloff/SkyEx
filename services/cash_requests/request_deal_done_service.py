@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from db_asyncpg.ports import ManagerRepositoryPort
@@ -10,7 +12,9 @@ from keyboards.request import CB_DEAL_DONE
 from services.cash_requests.request_router_service import RequestRouterService
 from services.cash_requests.request_schedule_service import RequestScheduleService
 from utils.auth import require_manager_or_admin_callback
+from utils.errors import suppress_telegram_edit_errors
 
+log = logging.getLogger(__name__)
 
 _RE_DONE_LINE = re.compile(
     r"^\s*✅?\s*Сделка\s+проведена\s*:\s*(?:<code>)?.+?(?:</code>)?\s*$",
@@ -100,7 +104,7 @@ class RequestDealDoneService:
                     city=city,
                 )
             except Exception:
-                pass
+                log.exception("Failed to sync schedule board for city %s", city)
 
         old_text, is_caption = self._reply_html_text_and_kind(msg)
         new_text = self._upsert_done_line(old_text)
@@ -122,11 +126,10 @@ class RequestDealDoneService:
                     parse_mode="HTML",
                     reply_markup=None,
                 )
-        except Exception:
-            try:
+        except TelegramAPIError as e:
+            log.debug("Deal done card edit failed (%s); stripping keyboard", e)
+            with suppress_telegram_edit_errors(context="deal done: strip keyboard"):
                 await msg.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
         if removed:
             await cq.answer("Сделка завершена")

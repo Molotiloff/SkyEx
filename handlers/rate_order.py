@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
-from typing import Iterable
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -52,7 +52,7 @@ class RateOrderHandler:
         client_name = get_chat_name(message)
         created_by_user_id = message.from_user.id if message.from_user else None
 
-        order_id = await self.rate_order_service.create_order(
+        await self.rate_order_service.create_order(
             bot=message.bot,
             client_chat_id=client_chat_id,
             client_name=client_name,
@@ -61,7 +61,7 @@ class RateOrderHandler:
         )
 
         await message.answer(
-            f"✅ Ордер создан",
+            "✅ Ордер создан",
             parse_mode="HTML",
         )
 

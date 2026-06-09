@@ -1,5 +1,5 @@
 # keyboards/main.py
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 
 class MainKeyboard:

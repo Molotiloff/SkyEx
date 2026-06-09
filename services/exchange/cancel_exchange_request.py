@@ -3,17 +3,19 @@ from __future__ import annotations
 import html
 import logging
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from keyboards import delete_from_table_keyboard
+from services.cash_requests import post_request_message
 from services.exchange.card_parser import CANCEL_REQUEST_PREFIX, parse_get_give
 from services.exchange.use_case_base import _ExchangeUseCaseBase
+from utils.errors import suppress_telegram_edit_errors
 from utils.formatting import format_amount_core
 from utils.info import get_chat_name
 from utils.req_index import req_index
-from services.cash_requests import post_request_message
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                 raise ValueError
             req_id_s = parts[1].strip()
             table_req_id_from_cb = parts[2].strip() if len(parts) >= 3 else None
-        except Exception:
+        except (IndexError, ValueError):
             await cq.answer("Некорректные данные", show_alert=True)
             return
 
@@ -84,8 +86,11 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                 tracked_currency_codes=tracked_currency_codes,
             )
         except Exception as e:
+            log.exception("apply_cancel failed for exchange request %s", req_id_s)
             await cq.answer(f"Не удалось отменить: {e}", show_alert=True)
             return
+
+        log.info("Exchange request %s cancelled", req_id_s)
 
         meta = await self._get_exchange_request_meta(req_id_s)
         table_req_id = (
@@ -106,18 +111,19 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
         )
 
         if not single_request_chat_card:
+            cancelled_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             try:
-                cancelled_at = datetime.now().strftime("%Y-%m-%d %H:%M")
                 await msg.edit_text(
                     f"{msg.text}\n----\nОтмена: <code>{cancelled_at}</code>",
                     parse_mode="HTML",
                     reply_markup=None,
                 )
-            except Exception:
-                try:
+            except TelegramAPIError as e:
+                # Не удалось переписать текст (например, новый текст не прошёл
+                # валидацию Telegram) — хотя бы снимем клавиатуру.
+                log.debug("Cancel annotation edit_text failed (%s); stripping keyboard", e)
+                with suppress_telegram_edit_errors(context="cancel exchange: strip keyboard"):
                     await msg.edit_reply_markup(reply_markup=None)
-                except Exception:
-                    pass
 
         if request_copy is not None and request_text:
             try:
@@ -158,12 +164,11 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                     act_chat_id = int(request_copy[0])
                 elif meta and meta.get("request_chat_id"):
                     act_chat_id = int(meta["request_chat_id"])
-                if act_chat_id is not None:
-                    if int(chat_id) != int(act_chat_id):
-                        await self.act_counter_service.revert_request_wallet_movements(
-                            req_id=str(req_id_s),
-                            request_chat_id=act_chat_id,
-                        )
+                if act_chat_id is not None and int(chat_id) != int(act_chat_id):
+                    await self.act_counter_service.revert_request_wallet_movements(
+                        req_id=str(req_id_s),
+                        request_chat_id=act_chat_id,
+                    )
                 await self.act_counter_service.cancel_request(req_id=str(req_id_s))
                 if act_chat_id is not None:
                     await self._notify_act_current_amount(

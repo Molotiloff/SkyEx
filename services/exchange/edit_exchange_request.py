@@ -5,16 +5,17 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from keyboards import request_keyboard
+from services.cash_requests import post_request_message
 from services.exchange.card_parser import extract_created_by, extract_request_id
 from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
 from services.exchange.use_case_base import _ExchangeUseCaseBase
 from utils.format_wallet_compact import format_wallet_compact
 from utils.info import get_chat_name
 from utils.req_index import req_index
-from services.cash_requests import post_request_message
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +119,9 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                 pay_is_withdraw=pay_is_withdraw,
                 tracked_currency_codes=tracked_currency_codes,
             )
+            log.info("Exchange request %s edited (movements=%d)", edit_req_id, len(applied_movements))
         except Exception as e:
+            log.exception("apply_edit_delta failed for exchange request %s", edit_req_id)
             await message.answer(f"Не удалось пересчитать балансы: {e}")
 
         if single_request_chat_card:
@@ -145,7 +148,8 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                     parse_mode="HTML",
                     reply_markup=request_chat_keyboard(req_id=edit_req_id, table_req_id=table_req_id),
                 )
-            except Exception as e:
+            except TelegramAPIError as e:
+                log.warning("Failed to edit request-chat card for exchange request %s: %r", edit_req_id, e)
                 await message.answer(f"Не удалось изменить заявку: {e}")
                 return True
 
@@ -191,7 +195,8 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                     parse_mode="HTML",
                     reply_markup=cancel_keyboard(edit_req_id, table_req_id),
                 )
-            except Exception as e:
+            except TelegramAPIError as e:
+                log.warning("Failed to edit client card for exchange request %s: %r", edit_req_id, e)
                 await message.answer(f"Не удалось изменить заявку: {e}")
                 return True
 

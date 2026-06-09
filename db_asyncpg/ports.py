@@ -373,21 +373,3 @@ class PaymentWatchAppRepositoryPort(
     Protocol,
 ):
     pass
-
-
-class ActExchangeRepositoryPort(
-    ActCounterRepositoryPort,
-    ExchangeRequestRepositoryPort,
-    TransactionRepositoryPort,
-    WalletRepositoryPort,
-    Protocol,
-):
-    pass
-
-
-class ActCounterLedgerRepositoryPort(
-    ActCounterRepositoryPort,
-    ClientWalletTransactionRepositoryPort,
-    Protocol,
-):
-    pass

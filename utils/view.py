@@ -1,11 +1,10 @@
 # utils/view.py
 from decimal import Decimal
-from typing import List, Tuple
 
 from utils.formatting import format_amount_core
 
 
-def format_wallet_view(snapshot: List[Tuple[str, Decimal]], wallet) -> str:
+def format_wallet_view(snapshot: list[tuple[str, Decimal]], wallet) -> str:
     """
     Форматирует список счетов с выравниванием сумм по правому краю.
 

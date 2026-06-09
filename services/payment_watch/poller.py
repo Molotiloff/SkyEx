@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.payment_watch.models import PaymentWatchNotification
 from services.payment_watch.service import PaymentWatchService
@@ -67,10 +68,8 @@ class PaymentWatchPoller:
         self._stopped = True
         if self._task:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         log.info("Payment watch poller stopped")
 
     async def _loop(self) -> None:

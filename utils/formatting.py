@@ -1,7 +1,7 @@
 # utils/formatting.py (замените format_amount_core на версию с минусами)
 from decimal import Decimal
 
-THIN_APOSTROPHE = u"’"
+THIN_APOSTROPHE = "’"
 
 
 def _group_int(int_part, sep=THIN_APOSTROPHE):

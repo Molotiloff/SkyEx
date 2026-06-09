@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import FSInputFile, Message
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +44,7 @@ class OfficeCardsHandler:
         self._register()
 
     def _register(self) -> None:
-        for cmd in self.cards.keys():
+        for cmd in self.cards:
             self.router.message.register(
                 self._send_card,
                 Command(cmd, ignore_mention=True),
@@ -82,12 +85,9 @@ class OfficeCardsHandler:
                 parse_mode="HTML",
             )
 
-            try:
-                if sent.photo:
-                    fid = sent.photo[-1].file_id
-                    print(f"[office_cards] command=/{cmd} file_id={fid}")
-            except Exception:
-                pass
+            if sent.photo:
+                fid = sent.photo[-1].file_id
+                log.debug("office_cards command=/%s file_id=%s", cmd, fid)
             return
 
         # 3) если картинки нет — просто отправляем текст

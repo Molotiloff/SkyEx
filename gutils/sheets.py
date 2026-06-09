@@ -3,21 +3,23 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 import re
 import ssl
 import urllib.request
 from decimal import Decimal, InvalidOperation
 from io import StringIO
-from typing import Optional, Tuple
 from urllib.parse import quote
 
 import certifi
 
+log = logging.getLogger(__name__)
+
 try:
     import gspread
     from google.oauth2.service_account import Credentials
-except Exception:
+except ImportError:
     gspread = None
     Credentials = None
 
@@ -83,7 +85,7 @@ def _sa_client():
 _SHEET_URL_RE = re.compile(r"https://docs\.google\.com/spreadsheets/d/([a-zA-Z0-9-_]+)", re.I)
 
 
-def _parse_sheet_url(url: str) -> Tuple[str, Optional[str]]:
+def _parse_sheet_url(url: str) -> tuple[str, str | None]:
     m = _SHEET_URL_RE.search(url or "")
     if not m:
         raise SheetsNotConfigured("Некорректная ссылка на Google Sheet")
@@ -95,7 +97,7 @@ def _parse_sheet_url(url: str) -> Tuple[str, Optional[str]]:
     return sheet_id, gid
 
 
-def _csv_export_url(sheet_id: str, gid: Optional[str], *, range_a1: Optional[str] = None) -> str:
+def _csv_export_url(sheet_id: str, gid: str | None, *, range_a1: str | None = None) -> str:
     """
     https://docs.google.com/spreadsheets/d/<ID>/export?format=csv[&gid=...][&range=...]
     Если указываем range, лучше НЕ указывать gid (гугл иногда ругается).
@@ -117,13 +119,13 @@ def _http_get_text(url: str, timeout: float = 10.0) -> str:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             data = resp.read()
             return data.decode("utf-8", errors="replace")
-    except Exception as e:
+    except OSError as e:
         # второй шанс без кастомного контекста (редкие MITM/корп. прокси)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = resp.read()
                 return data.decode("utf-8", errors="replace")
-        except Exception:
+        except OSError:
             raise SheetsReadError(f"Не удалось скачать CSV: {e}") from e
 
 
@@ -145,8 +147,7 @@ def _gviz_single_cell_url(sheet_id: str, sheet_name: str, cell: str) -> str:
 def _iter_csv(text: str):
     f = StringIO(text)
     reader = csv.reader(f)
-    for row in reader:
-        yield row
+    yield from reader
 
 
 # ---------- Чтение одной ячейки ----------
@@ -158,8 +159,8 @@ def _get_cell_map() -> dict[str, str]:
         m = json.loads(raw)
         # нормализуем ключи к UPPER
         return {_norm_code(k): str(v) for k, v in m.items()}
-    except Exception as e:
-        raise SheetsReadError(f"Некорректный GOOGLE_BALANCE_CELLS_JSON: {e}")
+    except (ValueError, TypeError, AttributeError) as e:
+        raise SheetsReadError(f"Некорректный GOOGLE_BALANCE_CELLS_JSON: {e}") from e
 
 
 def _read_single_cell_sa(sheet_id: str, a1: str) -> str:
@@ -191,8 +192,8 @@ def _read_single_cell_public(sheet_url: str, a1: str) -> str:
         for row in _iter_csv(text1):
             if row:
                 return str(row[0])
-    except Exception:
-        pass  # пойдём дальше
+    except (SheetsReadError, OSError, csv.Error) as e:
+        log.debug("Single-cell CSV export (range) failed for %s, trying next: %s", a1, e)
 
     # Try #2: export?format=csv&gid=<gid>&range=E7 (без имени листа)
     if gid and cell:
@@ -202,8 +203,8 @@ def _read_single_cell_public(sheet_url: str, a1: str) -> str:
             for row in _iter_csv(text2):
                 if row:
                     return str(row[0])
-        except Exception:
-            pass
+        except (SheetsReadError, OSError, csv.Error) as e:
+            log.debug("Single-cell CSV export (gid) failed for %s, trying next: %s", a1, e)
 
     # Try #3: gviz/tq?tqx=out:csv&sheet=<Лист>&range=E7
     if sheet_name and cell:
@@ -213,8 +214,8 @@ def _read_single_cell_public(sheet_url: str, a1: str) -> str:
             for row in _iter_csv(text3):
                 if row:
                     return str(row[0])
-        except Exception:
-            pass
+        except (SheetsReadError, OSError, csv.Error) as e:
+            log.debug("Single-cell gviz export failed for %s, giving up: %s", a1, e)
 
     raise SheetsReadError(
         "CSV экспорт одной ячейки не удался (range/gid/gviz). "

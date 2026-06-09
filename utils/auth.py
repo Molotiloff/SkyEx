@@ -1,9 +1,12 @@
 # utils/auth.py
 from __future__ import annotations
-from functools import wraps
-from typing import Awaitable, Callable, Concatenate, Iterable, ParamSpec, Protocol, TypeVar
 
-from aiogram.types import Message, CallbackQuery
+from collections.abc import Awaitable, Callable, Iterable
+from functools import wraps
+from typing import Concatenate, ParamSpec, Protocol, TypeVar
+
+from aiogram.types import CallbackQuery, Message
+
 from db_asyncpg.ports import ManagerRepositoryPort
 
 P = ParamSpec("P")

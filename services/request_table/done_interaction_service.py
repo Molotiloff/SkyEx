@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from db_asyncpg.ports import ExchangeRequestRepositoryPort
@@ -11,6 +12,7 @@ from services.request_table.message_builder import RequestTableMessageBuilder
 from services.request_table.session_store import RequestTableSessionStore
 from services.request_table.sheets_trade_gateway import SheetsTradeGateway
 from services.request_table.table_done_service import RequestTableDoneService
+from utils.errors import suppress_telegram_edit_errors
 from utils.req_index import req_index
 
 
@@ -56,11 +58,9 @@ class RequestTableDoneInteractionService:
 
         try:
             await msg.edit_reply_markup(reply_markup=self.message_builder.processing_kb())
-        except Exception:
-            try:
+        except TelegramAPIError:
+            with suppress_telegram_edit_errors(context="table done: strip keyboard"):
                 await msg.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
 
         self.session_store.add_pending(self._SCOPE, key)
         try:
@@ -97,15 +97,11 @@ class RequestTableDoneInteractionService:
             self.session_store.discard_pending(self._SCOPE, key)
 
         new_text = self.message_builder.append_status_once(msg.text or "", self.message_builder.STATUS_LINE_DONE)
-        try:
+        with suppress_telegram_edit_errors(context="table done: write status"):
             await msg.edit_text(new_text, parse_mode="HTML")
             self.session_store.mark(self._SCOPE, key)
-        except Exception:
-            pass
-        try:
+        with suppress_telegram_edit_errors(context="table done: strip keyboard"):
             await msg.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
         await cq.answer(self.message_builder.done_summary(result=result))
 

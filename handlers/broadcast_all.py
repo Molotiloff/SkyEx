@@ -9,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 from db_asyncpg.repo import Repo
 from services.broadcast import BroadcastPreviewBuilder, BroadcastService, BroadcastSessionStore
 from utils.auth import require_manager_or_admin_callback, require_manager_or_admin_message
+from utils.errors import suppress_telegram_edit_errors
 
 
 class BroadcastAllHandler:
@@ -181,10 +182,8 @@ class BroadcastAllHandler:
 
         if cq.data == self.CB_CANCEL:
             self.session_store.pop_payload(control_message_id=msg.message_id)
-            try:
+            with suppress_telegram_edit_errors(context="broadcast cancel"):
                 await msg.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
             await msg.answer("❌ Рассылка отменена.")
             await cq.answer()
             return
@@ -198,10 +197,8 @@ class BroadcastAllHandler:
             await cq.answer("Данные рассылки устарели.", show_alert=True)
             return
 
-        try:
+        with suppress_telegram_edit_errors(context="broadcast confirm"):
             await msg.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
 
         await cq.answer("Запускаю рассылку...")
         await self.broadcast_service.send_from_payload(source_message=msg, payload=payload)

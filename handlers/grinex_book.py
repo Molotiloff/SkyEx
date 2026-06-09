@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal
-from typing import Iterable
 
 from aiogram import Router
 from aiogram.filters import Command
@@ -23,8 +23,8 @@ class GrinexBookHandler:
     ) -> None:
         self.repo = repo
         self.orderbook_service = orderbook_service
-        self.admin_chat_ids = set(int(x) for x in (admin_chat_ids or []))
-        self.admin_user_ids = set(int(x) for x in (admin_user_ids or []))
+        self.admin_chat_ids = {int(x) for x in (admin_chat_ids or [])}
+        self.admin_user_ids = {int(x) for x in (admin_user_ids or [])}
         self.router = Router()
         self._register()
 

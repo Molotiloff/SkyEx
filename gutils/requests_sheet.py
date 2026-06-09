@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime
-from decimal import Decimal
-from typing import Optional, Union, Any
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+log = logging.getLogger(__name__)
 
 
 class SheetsWriteError(Exception):
@@ -40,6 +43,7 @@ def get_service_account_email() -> str:
         creds = _get_credentials()
         return getattr(creds, "service_account_email", "") or ""
     except Exception:
+        log.exception("Could not read service account email")
         return ""
 
 
@@ -81,7 +85,7 @@ def _get_service():
     return service
 
 
-def _resolve_spreadsheet_id(spreadsheet: Optional[str]) -> str:
+def _resolve_spreadsheet_id(spreadsheet: str | None) -> str:
     if _cached["spreadsheet_id"]:
         return _cached["spreadsheet_id"]
     candidate = (
@@ -99,12 +103,12 @@ def _resolve_spreadsheet_id(spreadsheet: Optional[str]) -> str:
 
 
 # === helpers ===
-def _coerce_num(x: Union[str, int, float, Decimal]) -> str:
+def _coerce_num(x: str | int | float | Decimal) -> str:
     s = format(Decimal(x).normalize(), "f") if isinstance(x, Decimal) else str(x)
     return s.strip().replace(" ", "").replace("\u00A0", "").replace(".", ",")
 
 
-def _format_dt(value: Union[str, datetime]) -> str:
+def _format_dt(value: str | datetime) -> str:
     if isinstance(value, datetime):
         return value.strftime("%d.%m.%Y")
     raw = str(value).strip()
@@ -112,7 +116,7 @@ def _format_dt(value: Union[str, datetime]) -> str:
         return raw
     try:
         return datetime.fromisoformat(raw.replace("Z", "+00:00")).strftime("%d.%m.%Y")
-    except Exception:
+    except ValueError:
         return raw.split(" ", 1)[0]
 
 
@@ -122,7 +126,7 @@ def _find_next_row(service, sid: str, sheet: str) -> int:
     return len(rows) + 1 if rows else 2
 
 
-def _read_main_rate_fresh(code: str, cell_map: dict[str, str] | None = None) -> Optional[Decimal]:
+def _read_main_rate_fresh(code: str, cell_map: dict[str, str] | None = None) -> Decimal | None:
     """Читает актуальный курс из листа «Главная» (без кеша)."""
     if not code:
         return None
@@ -140,7 +144,7 @@ def _read_main_rate_fresh(code: str, cell_map: dict[str, str] | None = None) -> 
     try:
         val = Decimal(raw)
         return val if val.is_finite() else None
-    except Exception:
+    except InvalidOperation:
         return None
 
 
@@ -156,15 +160,15 @@ def append_sale_row(
         *,
         in_currency: str,
         out_currency: str,
-        in_amount: Union[str, int, float, Decimal],
-        out_amount: Union[str, int, float, Decimal],
-        rate: Union[str, int, float, Decimal],
-        created_at: Optional[Union[str, datetime]] = None,
-        spreadsheet: Optional[str] = None,
+        in_amount: str | int | float | Decimal,
+        out_amount: str | int | float | Decimal,
+        rate: str | int | float | Decimal,
+        created_at: str | datetime | None = None,
+        spreadsheet: str | None = None,
         sheet_name: str = "Продажа",
         cell_map=None,
-        request_id: Optional[int | str] = None,
-) -> tuple[int, Optional[Decimal]]:
+        request_id: int | str | None = None,
+) -> tuple[int, Decimal | None]:
     """Записывает строку на лист 'Продажа'. Столбец D — свежий курс из «Главная», столбец B — номер заявки."""
     if cell_map is None:
         cell_map = _DEFAULT_CELL_MAP
@@ -216,12 +220,12 @@ def append_sale_row(
 def append_buy_row(
         *,
         currency: str,
-        amount: Union[str, int, float, Decimal],
-        rate: Union[str, int, float, Decimal],
-        created_at: Optional[Union[str, datetime]] = None,
-        spreadsheet: Optional[str] = None,
+        amount: str | int | float | Decimal,
+        rate: str | int | float | Decimal,
+        created_at: str | datetime | None = None,
+        spreadsheet: str | None = None,
         sheet_name: str = "Покупка",
-        request_id: Optional[int | str] = None,
+        request_id: int | str | None = None,
 ) -> int:
     """Записывает строку на лист 'Покупка'. Столбец B — номер заявки."""
     try:
@@ -314,7 +318,7 @@ def _get_sheet_id(service, sid: str, sheet_name: str) -> int:
 def delete_rows_by_request_id(
         *,
         req_id: int | str,
-        spreadsheet: Optional[str] = None,
+        spreadsheet: str | None = None,
         sheets: tuple[str, str] = ("Покупка", "Продажа"),
 ) -> dict[str, int]:
     """
