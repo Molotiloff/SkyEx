@@ -19,6 +19,11 @@ class _ManagerAuthContext(Protocol):
     admin_user_ids: Iterable[int]
 
 
+# Bound to the auth-context protocol so the decorators preserve each handler's
+# concrete `self` type instead of collapsing it to `_ManagerAuthContext`.
+S = TypeVar("S", bound=_ManagerAuthContext)
+
+
 def _is_reply_to_public_wallet_message(message: Message) -> bool:
     reply = getattr(message, "reply_to_message", None)
     if not reply or not message.bot or not reply.from_user:
@@ -95,11 +100,11 @@ async def require_manager_or_admin_callback(
 
 
 def manager_or_admin_message_required(
-        func: Callable[Concatenate[_ManagerAuthContext, Message, P], Awaitable[R]],
-) -> Callable[Concatenate[_ManagerAuthContext, Message, P], Awaitable[R | None]]:
+        func: Callable[Concatenate[S, Message, P], Awaitable[R]],
+) -> Callable[Concatenate[S, Message, P], Awaitable[R | None]]:
     @wraps(func)
     async def wrapper(
-            self: _ManagerAuthContext,
+            self: S,
             message: Message,
             *args: P.args,
             **kwargs: P.kwargs,
@@ -118,11 +123,11 @@ def manager_or_admin_message_required(
 
 
 def manager_or_admin_callback_required(
-        func: Callable[Concatenate[_ManagerAuthContext, CallbackQuery, P], Awaitable[R]],
-) -> Callable[Concatenate[_ManagerAuthContext, CallbackQuery, P], Awaitable[R | None]]:
+        func: Callable[Concatenate[S, CallbackQuery, P], Awaitable[R]],
+) -> Callable[Concatenate[S, CallbackQuery, P], Awaitable[R | None]]:
     @wraps(func)
     async def wrapper(
-            self: _ManagerAuthContext,
+            self: S,
             cq: CallbackQuery,
             *args: P.args,
             **kwargs: P.kwargs,
