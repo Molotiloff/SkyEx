@@ -11,7 +11,7 @@ from services.payment_watch.address_parser import extract_tron_address_from_mess
 from services.payment_watch.message_builder import PaymentWatchMessageBuilder
 from services.payment_watch.models import PaymentWatchNotification
 from services.payment_watch.receipt_image import PaymentReceiptImageBuilder
-from services.payment_watch.tronscan_gateway import TronscanGateway
+from services.payment_watch.tronscan_gateway import TronscanGateway, TronscanGatewayError
 from services.wallets.wallet_service import WalletService
 from utils.info import get_chat_name
 
@@ -40,6 +40,9 @@ class PaymentWatchService:
         self.test_amount = Decimal(test_amount)
         self.builder = PaymentWatchMessageBuilder()
         self.receipt_builder = PaymentReceiptImageBuilder()
+
+    async def aclose(self) -> None:
+        await self.tronscan_gateway.aclose()
 
     async def start_watch_from_reply(
         self,
@@ -143,7 +146,16 @@ class PaymentWatchService:
                     )
                 continue
 
-            notifications.extend(await self._process_watch(watch))
+            # Ошибка по одному watch'у (чаще всего рейт-лимит Tronscan) не должна
+            # прерывать обработку остальных и терять уже собранные уведомления.
+            try:
+                notifications.extend(await self._process_watch(watch))
+            except TronscanGatewayError as exc:
+                log.warning("Payment watch %s check skipped: %s", watch_id, exc)
+                continue
+            except Exception:
+                log.exception("Payment watch %s check failed", watch_id)
+                continue
             await self.repo.touch_payment_watch_checked_at(watch_id=watch_id, checked_at=now)
         return notifications
 
@@ -160,6 +172,7 @@ class PaymentWatchService:
             address=address,
             start_timestamp_ms=start_ms,
             limit=50,
+            skip_confirmation_hashes=seen_hashes,
         )
 
         notifications: list[PaymentWatchNotification] = []
@@ -199,6 +212,7 @@ class PaymentWatchService:
                     PaymentWatchNotification(
                         chat_id=int(watch["chat_id"]),
                         reply_message_id=int(watch["reply_message_id"]),
+                        watch_id=watch_id,
                         text=self.builder.build_test_success(
                             amount=transfer.amount,
                             tx_hash=transfer.tx_hash,

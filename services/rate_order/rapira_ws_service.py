@@ -215,8 +215,10 @@ class RapiraWsService:
                     WS_URL,
                     origin="https://rapira.net",
                     ssl=self._ssl_context,
-                    ping_interval=None,   # heartbeat делает engine.io
-                    ping_timeout=None,
+                    # Протокольный ping/pong поверх engine.io-heartbeat: без него
+                    # «молчащее» соединение режется сервером/прокси каждые 1-10 минут.
+                    ping_interval=20,
+                    ping_timeout=30,
                     close_timeout=10,
                     max_size=4 * 1024 * 1024,
                 ) as ws:
@@ -268,7 +270,8 @@ class RapiraWsService:
                     await asyncio.sleep(reconnect_delay)
 
             except ConnectionClosedError as e:
-                log.warning("Rapira websocket connection lost: %r", e)
+                # Реконнект штатный и занимает ~3 секунды — это не повод для WARNING.
+                log.info("Rapira websocket connection lost: %r", e)
                 if not self._stopped:
                     log.info("Rapira websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)

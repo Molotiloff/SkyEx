@@ -5,6 +5,7 @@ import contextlib
 import logging
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from services.payment_watch.models import PaymentWatchNotification
@@ -70,6 +71,7 @@ class PaymentWatchPoller:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
+        await self.service.aclose()
         log.info("Payment watch poller stopped")
 
     async def _loop(self) -> None:
@@ -86,6 +88,12 @@ class PaymentWatchPoller:
         if item.delete_message_id:
             try:
                 await self.bot.delete_message(chat_id=item.chat_id, message_id=item.delete_message_id)
+            except TelegramBadRequest as exc:
+                # Сообщение уже удалено (вручную или предыдущей попыткой) — не ошибка.
+                log.debug(
+                    "Previous payment watch message already gone chat_id=%s msg_id=%s: %s",
+                    item.chat_id, item.delete_message_id, exc,
+                )
             except Exception:
                 log.exception("Failed to delete previous payment watch message chat_id=%s msg_id=%s", item.chat_id, item.delete_message_id)
         kwargs = {
@@ -102,8 +110,15 @@ class PaymentWatchPoller:
             )
             kwargs["caption"] = item.text
             kwargs["parse_mode"] = "HTML"
-            await self.bot.send_photo(**kwargs)
-            return
-        kwargs["text"] = item.text
-        kwargs["parse_mode"] = "HTML"
-        await self.bot.send_message(**kwargs)
+            sent = await self.bot.send_photo(**kwargs)
+        else:
+            kwargs["text"] = item.text
+            kwargs["parse_mode"] = "HTML"
+            sent = await self.bot.send_message(**kwargs)
+        # Запоминаем актуальное служебное сообщение watch'а (таймаут, тестовый
+        # платёж): следующее уведомление удалит именно его, а не давно удалённое.
+        if item.watch_id is not None:
+            await self.service.set_notice_message_id(
+                watch_id=item.watch_id,
+                message_id=sent.message_id,
+            )

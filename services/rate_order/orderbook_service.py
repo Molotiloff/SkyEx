@@ -6,7 +6,12 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramBadRequest,
+    TelegramNetworkError,
+    TelegramRetryAfter,
+    TelegramServerError,
+)
 
 from db_asyncpg.ports import LiveMessageRepositoryPort
 
@@ -342,6 +347,18 @@ class OrderbookService:
 
                         log.warning(
                             "Failed to refresh live message chat_id=%s message_id=%s: %r",
+                            self._live_chat_id,
+                            self._live_message_id,
+                            e,
+                        )
+                        return
+
+                    except (TelegramNetworkError, TelegramServerError) as e:
+                        # Переходящий сбой Telegram: следующий апдейт стакана по WS
+                        # повторит правку, traceback в логах не нужен.
+                        log.warning(
+                            "Telegram unavailable while refreshing live message "
+                            "chat_id=%s message_id=%s: %r",
                             self._live_chat_id,
                             self._live_message_id,
                             e,
