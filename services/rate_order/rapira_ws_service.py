@@ -17,6 +17,11 @@ log = logging.getLogger("rapira_ws")
 
 WS_URL = "wss://api.rapira.net/market-ws/?EIO=4&transport=websocket"
 
+# engine.io v4 сервер сам шлёт heartbeat-ping ("2") каждые ~25 c. Если за это
+# время не пришло НИ heartbeat'а, НИ данных — соединение мёртвое, реконнектимся.
+# Запас (40 c) больше серверного pingInterval, чтобы не рвать живой коннект.
+RECV_TIMEOUT = 40
+
 SUBSCRIBE_PAYLOAD = [
     "subscribe",
     [
@@ -215,17 +220,19 @@ class RapiraWsService:
                     WS_URL,
                     origin="https://rapira.net",
                     ssl=self._ssl_context,
-                    # Протокольный ping/pong поверх engine.io-heartbeat: без него
-                    # «молчащее» соединение режется сервером/прокси каждые 1-10 минут.
-                    ping_interval=20,
-                    ping_timeout=30,
+                    # Протокольный WS-ping ОТКЛЮЧЁН: socket.io/engine.io-сервер не
+                    # отвечает на raw ping-фреймы, поэтому websockets через
+                    # ping_timeout рвал живое соединение каждые ~50 c (close 1011
+                    # 'keepalive ping timeout'). Живость держим через engine.io
+                    # heartbeat ("2"/"3") + read-timeout на recv (см. RECV_TIMEOUT).
+                    ping_interval=None,
                     close_timeout=10,
                     max_size=4 * 1024 * 1024,
                 ) as ws:
                     log.info("Rapira websocket connected")
 
                     # 1) ждём engine.io open packet: 0{...}
-                    first = await ws.recv()
+                    first = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT)
                     if not isinstance(first, str):
                         first = first.decode("utf-8", errors="ignore")
 
@@ -239,7 +246,7 @@ class RapiraWsService:
                     subscribed = False
 
                     while not self._stopped:
-                        raw = await ws.recv()
+                        raw = await asyncio.wait_for(ws.recv(), timeout=RECV_TIMEOUT)
                         if not isinstance(raw, str):
                             raw = raw.decode("utf-8", errors="ignore")
 
@@ -262,6 +269,13 @@ class RapiraWsService:
 
             except asyncio.CancelledError:
                 raise
+
+            except (asyncio.TimeoutError, TimeoutError):
+                # За RECV_TIMEOUT не пришло ни heartbeat'а, ни данных — соединение
+                # «молчит». Это штатная детекция мёртвого коннекта, не ошибка.
+                log.info("Rapira websocket idle for %ss, reconnecting", RECV_TIMEOUT)
+                if not self._stopped:
+                    await asyncio.sleep(reconnect_delay)
 
             except ConnectionClosedOK:
                 log.info("Rapira websocket closed normally")

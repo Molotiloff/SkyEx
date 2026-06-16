@@ -4,6 +4,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
+from asyncpg.exceptions import UniqueViolationError
+
 from db_asyncpg.pool import get_pool
 from db_asyncpg.repositories.base import BaseRepo
 from db_asyncpg.utils import SqlParams, quantize_amount, to_upper
@@ -25,51 +27,69 @@ class TransactionsRepo(BaseRepo):
     ) -> int:
         code = to_upper(currency_code)
         pool = await get_pool()
-        async with pool.acquire() as con:
-            async with con.transaction():
-                if idempotency_key:
-                    exist = await con.fetchrow(
-                        "SELECT id FROM transactions WHERE client_id=$1 AND idempotency_key=$2",
-                        client_id, idempotency_key,
+        try:
+            async with pool.acquire() as con:
+                async with con.transaction():
+                    if idempotency_key:
+                        exist = await con.fetchrow(
+                            "SELECT id FROM transactions WHERE client_id=$1 AND idempotency_key=$2",
+                            client_id, idempotency_key,
+                        )
+                        if exist:
+                            return exist["id"]
+
+                    acc = await con.fetchrow(
+                        """
+                        SELECT id, precision, balance
+                        FROM client_accounts
+                        WHERE client_id=$1 AND currency_code=$2 AND is_active=TRUE
+                        FOR UPDATE
+                        """,
+                        client_id, code,
                     )
-                    if exist:
-                        return exist["id"]
+                    if not acc:
+                        raise KeyError("account not found")
 
-                acc = await con.fetchrow(
-                    """
-                    SELECT id, precision, balance
-                    FROM client_accounts
-                    WHERE client_id=$1 AND currency_code=$2 AND is_active=TRUE
-                    FOR UPDATE
-                    """,
-                    client_id, code,
+                    prec = int(acc["precision"]) if acc["precision"] is not None else 2
+                    qamount = quantize_amount(amount, prec)
+                    new_balance = quantize_amount(Decimal(acc["balance"]) + qamount, prec)
+
+                    await con.execute(
+                        "UPDATE client_accounts SET balance=$1 WHERE id=$2",
+                        new_balance, acc["id"],
+                    )
+
+                    txn_at_norm = self._normalize_dt(txn_at) if txn_at is not None else None
+
+                    rec = await con.fetchrow(
+                        """
+                        INSERT INTO transactions
+                          (client_id, account_id, txn_at, amount, balance_after,
+                           group_id, actor_id, comment, source, idempotency_key)
+                        VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10)
+                        RETURNING id
+                        """,
+                        client_id, acc["id"], txn_at_norm, qamount, new_balance,
+                        group_id, actor_id, comment, source, idempotency_key,
+                    )
+                    return rec["id"]
+        except UniqueViolationError:
+            # Конкурентный дубликат: другая транзакция с тем же idempotency_key
+            # успела закоммититься между нашим SELECT и INSERT (например, менеджер
+            # дважды нажал «Отмена», пока Telegram тормозил). Проверка «прочитать,
+            # потом вставить» не атомарна — победитель применил эффект ровно один
+            # раз, а наша транзакция откатилась целиком (баланс мы не трогали).
+            # Возвращаем id уже существующей операции, делая вызов идемпотентным.
+            if not idempotency_key:
+                raise
+            async with pool.acquire() as con:
+                exist = await con.fetchrow(
+                    "SELECT id FROM transactions WHERE client_id=$1 AND idempotency_key=$2",
+                    client_id, idempotency_key,
                 )
-                if not acc:
-                    raise KeyError("account not found")
-
-                prec = int(acc["precision"]) if acc["precision"] is not None else 2
-                qamount = quantize_amount(amount, prec)
-                new_balance = quantize_amount(Decimal(acc["balance"]) + qamount, prec)
-
-                await con.execute(
-                    "UPDATE client_accounts SET balance=$1 WHERE id=$2",
-                    new_balance, acc["id"],
-                )
-
-                txn_at_norm = self._normalize_dt(txn_at) if txn_at is not None else None
-
-                rec = await con.fetchrow(
-                    """
-                    INSERT INTO transactions
-                      (client_id, account_id, txn_at, amount, balance_after,
-                       group_id, actor_id, comment, source, idempotency_key)
-                    VALUES ($1, $2, COALESCE($3::timestamptz, NOW()), $4, $5, $6, $7, $8, $9, $10)
-                    RETURNING id
-                    """,
-                    client_id, acc["id"], txn_at_norm, qamount, new_balance,
-                    group_id, actor_id, comment, source, idempotency_key,
-                )
-                return rec["id"]
+            if exist:
+                return exist["id"]
+            raise
 
     async def deposit(self, **kwargs) -> int:
         return await self._apply_delta(**kwargs)
