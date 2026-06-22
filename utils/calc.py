@@ -1,4 +1,5 @@
 # utils/calc.py
+import re
 from decimal import Decimal, InvalidOperation, getcontext
 
 getcontext().prec = 28
@@ -8,10 +9,25 @@ class CalcError(Exception):
     pass
 
 
+# Суффикс «к»/«k» после числа = ×1000 за каждую букву (кириллица и латиница,
+# оба регистра). 40к → 40000, 40кк → 40 000 000, 40,5к → 40500, 20к/77 → 20000/77.
+# Применяется ПОСЛЕ нормализации запятой в точку, поэтому ловит и дробные.
+_K_SUFFIX_RE = re.compile(r"(\d+(?:\.\d+)?|\.\d+)([kKкК]+)")
+
+
+def _expand_k_suffix(s: str) -> str:
+    def _repl(m: "re.Match[str]") -> str:
+        value = Decimal(m.group(1)) * (Decimal(1000) ** len(m.group(2)))
+        return f"{value:f}"
+
+    return _K_SUFFIX_RE.sub(_repl, s)
+
+
 def _tokenize(s):
     s = s.strip().replace(",", ".")
     if not s:
         raise CalcError("Пустое выражение")
+    s = _expand_k_suffix(s)
     allowed = set("0123456789.+-*/()% ")
     if any(ch not in allowed for ch in s):
         raise CalcError("Недопустимый символ в выражении")
