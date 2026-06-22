@@ -14,7 +14,13 @@ class CalcError(Exception):
 _K_SUFFIX_RE = re.compile(r"(\d+(?:\.\d+)?|\.\d+)([kKкК]+)")
 
 
-def _expand_k_suffix(s: str) -> str:
+def expand_k_suffix(s: str) -> str:
+    """Развернуть «к»/«k»-суффикс после числа в ×1000 за букву.
+
+    Чистое строковое преобразование: трогает только `цифры[.цифры]` сразу
+    перед одной/несколькими `к/k`, всё прочее (буквы, операторы, %) — без
+    изменений. Поэтому безопасно для текстов с кодами валют (AED 30k → AED 30000).
+    """
     def _repl(m: "re.Match[str]") -> str:
         value = Decimal(m.group(1)) * (Decimal(1000) ** len(m.group(2)))
         return f"{value:f}"
@@ -26,7 +32,7 @@ def _tokenize(s):
     s = s.strip().replace(",", ".")
     if not s:
         raise CalcError("Пустое выражение")
-    s = _expand_k_suffix(s)
+    s = expand_k_suffix(s)
     allowed = set("0123456789.+-*/()% ")
     if any(ch not in allowed for ch in s):
         raise CalcError("Недопустимый символ в выражении")

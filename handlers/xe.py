@@ -12,6 +12,7 @@ from db_asyncpg.ports import ManagerRepositoryPort
 from services.xe_api import ConverterAPIError, ConverterAPIService
 from services.xe_formatter import ResponseFormatter
 from utils.auth import manager_or_admin_message_required
+from utils.calc import expand_k_suffix
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,9 @@ class XEHandler:
             )
             return
 
-        query = parts[1].strip()
+        # «30k» → «30000» локально, чтобы не зависеть от внешнего Converter API.
+        # Коды валют (буквы) под шаблон не попадают.
+        query = expand_k_suffix(parts[1].strip())
 
         try:
             result = await self.converter_service.convert_text(
