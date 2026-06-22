@@ -270,7 +270,7 @@ class RapiraWsService:
             except asyncio.CancelledError:
                 raise
 
-            except (asyncio.TimeoutError, TimeoutError):
+            except TimeoutError:
                 # За RECV_TIMEOUT не пришло ни heartbeat'а, ни данных — соединение
                 # «молчит». Это штатная детекция мёртвого коннекта, не ошибка.
                 log.info("Rapira websocket idle for %ss, reconnecting", RECV_TIMEOUT)
