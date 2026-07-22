@@ -290,6 +290,12 @@ class RapiraWsService:
                     log.info("Rapira websocket reconnecting in %s sec", reconnect_delay)
                     await asyncio.sleep(reconnect_delay)
 
+            except OSError as e:
+                log.warning("Rapira websocket connect failed: %s", e)
+                if not self._stopped:
+                    log.info("Rapira websocket reconnecting in %s sec", reconnect_delay)
+                    await asyncio.sleep(reconnect_delay)
+
             except Exception:
                 log.exception("Rapira websocket error")
                 if not self._stopped:
