@@ -87,7 +87,11 @@ class OfficeCardsHandler:
 
             if sent.photo:
                 fid = sent.photo[-1].file_id
-                log.debug("office_cards command=/%s file_id=%s", cmd, fid)
+                log.info(
+                    "office_cards new photo_file_id: command=/%s photo_file_id=%s",
+                    cmd,
+                    fid,
+                )
             return
 
         # 3) если картинки нет — просто отправляем текст
