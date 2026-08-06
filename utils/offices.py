@@ -39,7 +39,7 @@ OFFICE_CARDS: dict[str, OfficeCard] = {
     ),
     "тюм": OfficeCard(
             command="тюм",
-            photo_file_id=None,
+            photo_file_id="AgACAgIAAyEGAATT2G0dAAILLmp04Qc5hPTJkoJRIu6XWxbKM1HbAALZHWsbiA-pS7gQtvcJ3zTYAQADAgADeQADPQQ",
             image_path=Path("images/tum_office.jpg"),
             caption=(
                 "📍 <b>Адрес офиса:</b>\n"
