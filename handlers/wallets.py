@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import cast
 
 from aiogram import F, Router
+from aiogram.filters import BaseFilter
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -13,6 +14,7 @@ from db_asyncpg.ports import ClientTransactionRepositoryPort, ClientTransferRepo
 from db_asyncpg.repo import Repo
 from services.wallets import WalletInteractionService, WalletService
 from services.wallets.city_cash_media_store import CityCashMediaStore
+from services.wallets.command_parser import WalletCommandParser
 from utils.auth import (
     manager_or_admin_callback_required,
     manager_or_admin_message_required,
@@ -23,6 +25,13 @@ from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
 _RE_PUBLIC_WALLET_CMD = r"(?iu)^/кош(?:@\w+)?(?:\s|$)"
+
+
+class CurrencyChangeCommandFilter(BaseFilter):
+    async def __call__(self, message: Message) -> bool:
+        return WalletCommandParser.looks_like_currency_change(
+            message.text or message.caption
+        )
 
 
 class WalletsHandler:
@@ -219,11 +228,7 @@ class WalletsHandler:
 
         self.router.message.register(
             self._on_currency_change,
-            F.text.regexp(r"^/[A-Za-zА-Яа-я0-9_]+\s+"),
-        )
-        self.router.message.register(
-            self._on_currency_change,
-            F.caption.regexp(r"^/[A-Za-zА-Яа-я0-9_]+\s+"),
+            CurrencyChangeCommandFilter(),
         )
         self.router.message.register(
             self._buffer_city_cash_media_group,

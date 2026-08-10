@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import F, Router
+from aiogram.filters import BaseFilter
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
@@ -10,6 +11,21 @@ from db_asyncpg.repo import Repo
 from services.broadcast import BroadcastPreviewBuilder, BroadcastService, BroadcastSessionStore
 from utils.auth import require_manager_or_admin_callback, require_manager_or_admin_message
 from utils.errors import suppress_telegram_edit_errors
+
+
+class PendingBroadcastReplyFilter(BaseFilter):
+    def __init__(self, session_store: BroadcastSessionStore) -> None:
+        self.session_store = session_store
+
+    async def __call__(self, message: Message) -> bool:
+        reply_msg = message.reply_to_message
+        return bool(
+            reply_msg
+            and self.session_store.is_pending_prompt(
+                chat_id=message.chat.id,
+                prompt_message_id=reply_msg.message_id,
+            )
+        )
 
 
 class BroadcastAllHandler:
@@ -207,7 +223,7 @@ class BroadcastAllHandler:
         self.router.message.register(self._cmd_all, Command("всем"))
         self.router.message.register(
             self._handle_broadcast_reply,
-            F.reply_to_message.as_("reply_to_message"),
+            PendingBroadcastReplyFilter(self.session_store),
         )
         self.router.callback_query.register(
             self._handle_broadcast_action,

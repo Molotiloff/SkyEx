@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from decimal import Decimal
+import re
 
 from aiogram.types import Message
 
@@ -10,6 +11,8 @@ from utils.calc import CalcError, evaluate
 
 
 class WalletCommandParser:
+    _LEADING_IGNORED_CHARS = " \t\r\n\u200b\u200c\u200d\ufeff\u200e\u200f\u2066\u2067\u2068\u2069"
+    _CURRENCY_CHANGE_RE = re.compile(r"(?iu)^/[A-Za-zА-Яа-я0-9_.]+(?:@\w+)?\s+")
     _CURRENCY_ALIASES = {
         "usd": "USD", "дол": "USD", "долл": "USD", "доллар": "USD", "доллары": "USD",
         "usdt": "USDT", "юсдт": "USDT",
@@ -39,6 +42,14 @@ class WalletCommandParser:
         first = s.strip().split(maxsplit=1)[0]
         return first.replace(",", ".")
 
+    @classmethod
+    def normalize_command_text(cls, text: str | None) -> str:
+        return (text or "").lstrip(cls._LEADING_IGNORED_CHARS)
+
+    @classmethod
+    def looks_like_currency_change(cls, text: str | None) -> bool:
+        return bool(cls._CURRENCY_CHANGE_RE.match(cls.normalize_command_text(text)))
+
     @staticmethod
     def split_city_transfer_tail(tail: str) -> tuple[str, str]:
         s = (tail or "").strip()
@@ -50,7 +61,7 @@ class WalletCommandParser:
         return client_name, comment
 
     async def parse_currency_change(self, message: Message) -> ParsedCurrencyChange | None:
-        text = (message.text or message.caption or "").strip()
+        text = self.normalize_command_text(message.text or message.caption or "").strip()
         if not text.startswith("/"):
             return None
 
@@ -58,7 +69,7 @@ class WalletCommandParser:
         if len(parts) < 2:
             return None
 
-        raw_code = parts[0]
+        raw_code = parts[0].split("@", 1)[0]
         code = self.normalize_code_alias(raw_code)
 
         expr_full = parts[1].strip()
