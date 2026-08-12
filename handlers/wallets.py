@@ -6,12 +6,16 @@ from collections.abc import Iterable
 from typing import cast
 
 from aiogram import F, Router
-from aiogram.filters import BaseFilter
-from aiogram.filters import Command
+from aiogram.filters import BaseFilter, Command
 from aiogram.types import CallbackQuery, Message
 
-from db_asyncpg.ports import ClientTransactionRepositoryPort, ClientTransferRepositoryPort
+from db_asyncpg.ports import (
+    ActCounterLedgerRepositoryPort,
+    ClientTransactionRepositoryPort,
+    ClientTransferRepositoryPort,
+)
 from db_asyncpg.repo import Repo
+from services.act_counter import ActCounterService
 from services.wallets import WalletInteractionService, WalletService
 from services.wallets.city_cash_media_store import CityCashMediaStore
 from services.wallets.command_parser import WalletCommandParser
@@ -25,6 +29,15 @@ from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
 _RE_PUBLIC_WALLET_CMD = r"(?iu)^/кош(?:@\w+)?(?:\s|$)"
+_REQUEST_CHAT_WALLET_CODES = frozenset({"USDT", "USD", "EUR"})
+
+
+def is_request_chat_wallet_command_allowed(text: str | None) -> bool:
+    normalized = WalletCommandParser.normalize_command_text(text).strip()
+    if not normalized.startswith("/"):
+        return False
+    raw_code = normalized[1:].split(None, 1)[0].split("@", 1)[0]
+    return WalletCommandParser.normalize_code_alias(raw_code) in _REQUEST_CHAT_WALLET_CODES
 
 
 class CurrencyChangeCommandFilter(BaseFilter):
@@ -58,6 +71,9 @@ class WalletsHandler:
             repo=wallet_repo,
             city_cash_chat_ids=city_cash_chat_ids,
             city_cash_media_store=self.city_cash_media_store,
+        )
+        self.act_counter_service = ActCounterService(
+            cast(ActCounterLedgerRepositoryPort, repo)
         )
         self.interaction_service = WalletInteractionService(wallet_service=self.wallet_service)
         self.router = Router()
@@ -100,9 +116,13 @@ class WalletsHandler:
         if message.chat and message.chat.id in self.ignore_chat_ids:
             return
 
-        if self.request_chat_id is not None and int(message.chat.id) == self.request_chat_id:
+        if (
+            self.request_chat_id is not None
+            and int(message.chat.id) == self.request_chat_id
+            and not is_request_chat_wallet_command_allowed(message.text or message.caption)
+        ):
             await message.answer(
-                "В заявочном чате команды кошелька вида /usd, /usdt и т.д. недоступны."
+                "В заявочном чате доступны только операции /usdt, /usd и /eur."
             )
             return
 
@@ -142,6 +162,12 @@ class WalletsHandler:
             admin_user_ids=self.admin_user_ids,
         ):
             return
+
+        if self.request_chat_id is not None and int(message.chat.id) == self.request_chat_id:
+            await self.act_counter_service.ensure_request_chat_accounts(
+                request_chat_id=int(message.chat.id),
+                chat_name=getattr(message.chat, "title", None),
+            )
 
         async with chat_locks.for_chat(message.chat.id):
             result = await self.interaction_service.build_currency_change_response(message)

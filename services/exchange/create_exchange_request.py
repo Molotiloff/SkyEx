@@ -8,6 +8,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from keyboards import request_keyboard
+from services.act_counter import ActCounterService
 from services.cash_requests import post_request_message
 from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
 from services.exchange.use_case_base import _ExchangeUseCaseBase
@@ -36,6 +37,14 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
 
         try:
             client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
+            is_request_chat_origin = bool(
+                self.request_chat_id and int(chat_id) == int(self.request_chat_id)
+            )
+            if is_request_chat_origin and self.act_counter_service:
+                await self.act_counter_service.ensure_request_chat_accounts(
+                    request_chat_id=int(chat_id),
+                    chat_name=chat_name,
+                )
             accounts = await self.repo.snapshot_wallet(client_id)
             try:
                 calc = self.calculator.calculate(
@@ -94,8 +103,9 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
             idem_pay = f"{chat_id}:{message.message_id}:pay"
             recv_comment = recv_amount_expr if not note else f"{recv_amount_expr} | {note}"
             pay_comment = pay_amount_expr if not note else f"{pay_amount_expr} | {note}"
-            is_request_chat_origin = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
-            tracked_currency_codes = {"USDT"} if is_request_chat_origin else None
+            tracked_currency_codes = (
+                set(ActCounterService.CURRENCY_PRECISIONS) if is_request_chat_origin else None
+            )
 
             try:
                 create_result = await self.balance_service.apply_create(
@@ -188,6 +198,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                         await self._notify_act_current_amount(
                             bot=message.bot,
                             request_chat_id=int(sent.chat.id),
+                            movements=create_result.movements,
                         )
                     except Exception:
                         log.exception("Failed to update ACT for in-request-chat exchange request %s", req_id)
@@ -250,6 +261,7 @@ class CreateExchangeRequest(_ExchangeUseCaseBase):
                         await self._notify_act_current_amount(
                             bot=message.bot,
                             request_chat_id=int(sent_request.chat.id),
+                            movements=create_result.movements,
                         )
                 except Exception:
                     log.exception("Failed to post or persist exchange request chat copy %s", req_id)

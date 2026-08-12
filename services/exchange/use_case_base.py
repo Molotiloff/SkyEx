@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 
 from db_asyncpg.ports import ExchangeWorkflowRepositoryPort
 from services.act_counter import ActCounterService
+from services.act_counter.models import AppliedExchangeMovement
 from services.act_counter.text_builder import ActCounterTextBuilder
 from services.exchange.balance_service import ExchangeBalanceService
 from services.exchange.calculator import ExchangeCalculator
@@ -48,16 +50,31 @@ class _ExchangeUseCaseBase:
             )
             return None
 
-    async def _notify_act_current_amount(self, *, bot, request_chat_id: int | None) -> None:
+    async def _notify_act_current_amount(
+        self,
+        *,
+        bot,
+        request_chat_id: int | None,
+        movements: Iterable[AppliedExchangeMovement] | None = None,
+        currency_codes: set[str] | None = None,
+    ) -> None:
         if not self.act_counter_service or not request_chat_id:
             return
         try:
-            current_amount = await self.act_counter_service.get_current_amount(
+            displayed_codes = {ActCounterService.DEFAULT_CURRENCY_CODE}
+            displayed_codes.update(currency_codes or set())
+            displayed_codes.update(
+                movement.currency_code.upper()
+                for movement in movements or []
+                if self.act_counter_service.is_tracked_currency(movement.currency_code)
+            )
+            current_amounts = await self.act_counter_service.get_current_amounts(
                 request_chat_id=int(request_chat_id),
+                currency_codes=displayed_codes,
             )
             await bot.send_message(
                 chat_id=int(request_chat_id),
-                text=self.act_text_builder.build_current_amount_text(current_amount),
+                text=self.act_text_builder.build_current_amounts_text(current_amounts),
                 parse_mode="HTML",
             )
         except Exception:

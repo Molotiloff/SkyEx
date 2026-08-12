@@ -9,6 +9,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message
 
 from keyboards import request_keyboard
+from services.act_counter import ActCounterService
 from services.cash_requests import post_request_message
 from services.exchange.card_parser import extract_created_by, extract_request_id
 from services.exchange.keyboards import cancel_keyboard, request_chat_keyboard
@@ -87,7 +88,14 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
 
         changed_at = datetime.now().strftime("%Y-%m-%d %H:%M")
         single_request_chat_card = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
-        tracked_currency_codes = {"USDT"} if single_request_chat_card else None
+        if single_request_chat_card and self.act_counter_service:
+            await self.act_counter_service.ensure_request_chat_accounts(
+                request_chat_id=int(chat_id),
+                chat_name=chat_name,
+            )
+        tracked_currency_codes = (
+            set(ActCounterService.CURRENCY_PRECISIONS) if single_request_chat_card else None
+        )
         new_client_text = self.text_builder.build_client_text(
             req_id=edit_req_id,
             recv_code=recv_code,
@@ -185,6 +193,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                 await self._notify_act_current_amount(
                     bot=message.bot,
                     request_chat_id=int(message.chat.id),
+                    movements=applied_movements,
                 )
         else:
             try:
@@ -285,6 +294,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                         await self._notify_act_current_amount(
                             bot=message.bot,
                             request_chat_id=int(request_chat_id),
+                            movements=applied_movements,
                         )
                 else:
                     sent_request = await post_request_message(
@@ -343,6 +353,7 @@ class EditExchangeRequest(_ExchangeUseCaseBase):
                         await self._notify_act_current_amount(
                             bot=message.bot,
                             request_chat_id=int(sent_request.chat.id),
+                            movements=applied_movements,
                         )
                 await post_request_message(
                     message.bot,

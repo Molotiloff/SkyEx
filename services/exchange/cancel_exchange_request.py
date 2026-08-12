@@ -9,6 +9,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import CallbackQuery
 
 from keyboards import delete_from_table_keyboard
+from services.act_counter import ActCounterService
 from services.cash_requests import post_request_message
 from services.exchange.card_parser import CANCEL_REQUEST_PREFIX, parse_get_give
 from services.exchange.use_case_base import _ExchangeUseCaseBase
@@ -53,9 +54,16 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
         chat_id = msg.chat.id
         chat_name = get_chat_name(msg)
         client_id = await self.repo.ensure_client(chat_id=chat_id, name=chat_name)
-        accounts = await self.repo.snapshot_wallet(client_id)
         single_request_chat_card = bool(self.request_chat_id and int(chat_id) == int(self.request_chat_id))
-        tracked_currency_codes = {"USDT"} if single_request_chat_card else None
+        if single_request_chat_card and self.act_counter_service:
+            await self.act_counter_service.ensure_request_chat_accounts(
+                request_chat_id=int(chat_id),
+                chat_name=chat_name,
+            )
+        accounts = await self.repo.snapshot_wallet(client_id)
+        tracked_currency_codes = (
+            set(ActCounterService.CURRENCY_PRECISIONS) if single_request_chat_card else None
+        )
 
         def find_account(code: str):
             return next((row for row in accounts if str(row["currency_code"]).upper() == code.upper()), None)
@@ -159,6 +167,9 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
 
         if self.act_counter_service:
             try:
+                act_currency_codes = await self.act_counter_service.get_request_currency_codes(
+                    req_id=str(req_id_s)
+                )
                 act_chat_id = None
                 if request_copy is not None:
                     act_chat_id = int(request_copy[0])
@@ -174,6 +185,7 @@ class CancelExchangeRequest(_ExchangeUseCaseBase):
                     await self._notify_act_current_amount(
                         bot=cq.bot,
                         request_chat_id=act_chat_id,
+                        currency_codes=act_currency_codes,
                     )
             except Exception:
                 log.exception("Failed to cancel ACT movements for exchange request %s", req_id_s)
