@@ -4,6 +4,7 @@ DEFAULT_ACT_CURRENCY = "USDT"
 ACT_CURRENCY_PRECISIONS = {
     "USDT": 2,
     "USD": 2,
+    "USDW": 2,
     "EUR": 2,
 }
 ACT_CURRENCY_ALIASES = {
@@ -14,6 +15,10 @@ ACT_CURRENCY_ALIASES = {
     "долл": "USD",
     "доллар": "USD",
     "доллары": "USD",
+    "usdw": "USDW",
+    "долб": "USDW",
+    "доллбел": "USDW",
+    "долбел": "USDW",
     "eur": "EUR",
     "евро": "EUR",
 }

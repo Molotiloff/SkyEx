@@ -29,7 +29,7 @@ from utils.locks import chat_locks
 from utils.statements import handle_stmt_callback
 
 _RE_PUBLIC_WALLET_CMD = r"(?iu)^/кош(?:@\w+)?(?:\s|$)"
-_REQUEST_CHAT_WALLET_CODES = frozenset({"USDT", "USD", "EUR"})
+_REQUEST_CHAT_WALLET_CODES = frozenset({"USDT", "USD", "USDW", "EUR"})
 
 
 def is_request_chat_wallet_command_allowed(text: str | None) -> bool:
@@ -122,7 +122,7 @@ class WalletsHandler:
             and not is_request_chat_wallet_command_allowed(message.text or message.caption)
         ):
             await message.answer(
-                "В заявочном чате доступны только операции /usdt, /usd и /eur."
+                "В заявочном чате доступны только операции /usdt, /usd, /usdw и /eur."
             )
             return
 

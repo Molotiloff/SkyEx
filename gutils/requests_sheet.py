@@ -206,14 +206,52 @@ def append_sale_row(
             ]
         )
 
-        service.spreadsheets().values().batchUpdate(
+        resp = service.spreadsheets().values().batchUpdate(
             spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}
         ).execute()
+        log.info(
+            "Google Sheets write: op=append_sale spreadsheet_id=%s sheet=%s row=%s request_id=%s "
+            "in_currency=%s out_currency=%s in_amount=%s out_amount=%s rate=%s fresh_rate=%s "
+            "updated_cells=%s",
+            sid,
+            sheet_name,
+            row,
+            request_id,
+            in_currency,
+            out_cur,
+            in_amount,
+            out_amount,
+            rate,
+            fresh,
+            resp.get("totalUpdatedCells"),
+        )
         return row, None
 
     except HttpError as e:
+        log.exception(
+            "Google Sheets write failed: op=append_sale sheet=%s request_id=%s in_currency=%s "
+            "out_currency=%s in_amount=%s out_amount=%s rate=%s",
+            sheet_name,
+            request_id,
+            in_currency,
+            out_currency,
+            in_amount,
+            out_amount,
+            rate,
+        )
         raise SheetsWriteError(f"Ошибка Google Sheets API: {e}") from e
     except Exception as e:
+        log.exception(
+            "Google Sheets write failed: op=append_sale sheet=%s request_id=%s in_currency=%s "
+            "out_currency=%s in_amount=%s out_amount=%s rate=%s",
+            sheet_name,
+            request_id,
+            in_currency,
+            out_currency,
+            in_amount,
+            out_amount,
+            rate,
+        )
         raise SheetsWriteError(str(e)) from e
 
 
@@ -253,14 +291,42 @@ def append_buy_row(
             ]
         )
 
-        service.spreadsheets().values().batchUpdate(
+        resp = service.spreadsheets().values().batchUpdate(
             spreadsheetId=sid, body={"valueInputOption": "USER_ENTERED", "data": data}
         ).execute()
+        log.info(
+            "Google Sheets write: op=append_buy spreadsheet_id=%s sheet=%s row=%s request_id=%s "
+            "currency=%s amount=%s rate=%s updated_cells=%s",
+            sid,
+            sheet_name,
+            row,
+            request_id,
+            cur,
+            amount,
+            rate,
+            resp.get("totalUpdatedCells"),
+        )
         return row
 
     except HttpError as e:
+        log.exception(
+            "Google Sheets write failed: op=append_buy sheet=%s request_id=%s currency=%s amount=%s rate=%s",
+            sheet_name,
+            request_id,
+            currency,
+            amount,
+            rate,
+        )
         raise SheetsWriteError(f"Ошибка Google Sheets API: {e}") from e
     except Exception as e:
+        log.exception(
+            "Google Sheets write failed: op=append_buy sheet=%s request_id=%s currency=%s amount=%s rate=%s",
+            sheet_name,
+            request_id,
+            currency,
+            amount,
+            rate,
+        )
         raise SheetsWriteError(str(e)) from e
 
 
@@ -304,6 +370,13 @@ def _delete_rows_by_0based_indices(service, sid: str, sheet_id: int, rows_0based
             }
         })
     service.spreadsheets().batchUpdate(spreadsheetId=sid, body={"requests": requests}).execute()
+    log.info(
+        "Google Sheets write: op=delete_rows spreadsheet_id=%s sheet_id=%s rows_1based=%s count=%s",
+        sid,
+        sheet_id,
+        [r + 1 for r in rows_0based],
+        len(rows_0based),
+    )
 
 
 def _get_sheet_id(service, sid: str, sheet_name: str) -> int:
@@ -337,8 +410,19 @@ def delete_rows_by_request_id(
                 rows_sorted = sorted(rows, reverse=True)
                 _delete_rows_by_0based_indices(service, sid, sheet_id, rows_sorted)
             results[sheet_name] = len(rows or [])
+            log.info(
+                "Google Sheets write: op=delete_by_request_id spreadsheet_id=%s sheet=%s "
+                "request_id=%s matched_rows_1based=%s deleted_count=%s",
+                sid,
+                sheet_name,
+                req_id,
+                [r + 1 for r in rows],
+                len(rows or []),
+            )
         return results
     except HttpError as e:
+        log.exception("Google Sheets write failed: op=delete_by_request_id request_id=%s sheets=%s", req_id, sheets)
         raise SheetsWriteError(f"Ошибка Google Sheets API: {e}") from e
     except Exception as e:
+        log.exception("Google Sheets write failed: op=delete_by_request_id request_id=%s sheets=%s", req_id, sheets)
         raise SheetsWriteError(str(e)) from e
