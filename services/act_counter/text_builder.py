@@ -9,7 +9,7 @@ from utils.formatting import format_amount_core
 
 class ActCounterTextBuilder:
     CURRENCY_PRECISIONS = ACT_CURRENCY_PRECISIONS
-    CURRENCY_ORDER = ("USDT", "USD", "EUR")
+    CURRENCY_ORDER = ("USDT", "USD", "USDW", "EUR")
 
     def format_amount(self, amount: Decimal, currency_code: str = "USDT") -> str:
         code = currency_code.upper()
