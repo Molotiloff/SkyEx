@@ -15,6 +15,9 @@ class PaymentWatchMessageBuilder:
         note_line = f"\nКомментарий менеджера: <code>{html.escape(manager_note)}</code>" if manager_note else ""
         if test_mode:
             return (
+                "❗❗❗ Если указанный адрес принадлежит бирже\n"
+                "(например, Bybit), пожалуйста, сообщите об этом менеджеру\n"
+                "перед отправкой.❗❗❗\n"
                 "⏳ Начал отслеживание отправки.\n"
                 f"Адрес: <code>{safe}</code>\n"
                 "Сценарий: тестовая 1 USDT, затем основная.\n"
@@ -23,6 +26,9 @@ class PaymentWatchMessageBuilder:
                 f"{note_line}"
             )
         return (
+            "❗❗❗ Если указанный адрес принадлежит бирже\n"
+            "(например, Bybit), пожалуйста, сообщите об этом менеджеру\n"
+            "перед отправкой.❗❗❗\n"
             "⏳ Начал отслеживание отправки.\n"
             f"Адрес: <code>{safe}</code>\n"
             "Жду перевод USDT TRC-20  между кошельками.\n"
