@@ -158,6 +158,7 @@ class RequestTableDoneService:
                 created_at=created_at,
                 spreadsheet=None,
                 sheet_name="Продажа",
+                rate_currency=out_cur,
                 request_id=req_id,
             )
             sheet_type = "Продажа"
@@ -172,6 +173,7 @@ class RequestTableDoneService:
                 created_at=created_at,
                 spreadsheet=None,
                 sheet_name="Продажа",
+                rate_currency=out_cur,
                 request_id=req_id,
             )
             sheet_type = "Продажа"
@@ -210,6 +212,7 @@ class RequestTableDoneService:
                 created_at=created_at,
                 spreadsheet=None,
                 sheet_name="Продажа",
+                rate_currency=out_cur,
                 request_id=req_id,
             )
             sheet_type = f"Покупка + Продажа ({in_cur_table})"
@@ -226,6 +229,7 @@ class RequestTableDoneService:
                 created_at=created_at,
                 spreadsheet=None,
                 sheet_name="Продажа",
+                rate_currency=out_cur,
                 request_id=req_id,
             )
             final_rate = rub_total / in_amt
@@ -255,20 +259,16 @@ class RequestTableDoneService:
             if out_amt <= 0:
                 raise SheetsWriteError("Сумма продажи должна быть > 0.")
             sale_rate = rub_total / out_amt
-            pretty_out = out_cur_table
-            custom_cell_map = dict(self._DEFAULT_CELL_MAP)
-            if pretty_out not in custom_cell_map:
-                custom_cell_map[pretty_out] = self._DEFAULT_CELL_MAP[out_cur]
             self.sheets_gateway.append_sale_row(
                 in_currency=in_cur,
-                out_currency=pretty_out,
+                out_currency=out_cur_table,
                 in_amount=in_amt,
                 out_amount=out_amt,
                 rate=sale_rate,
                 created_at=created_at,
                 spreadsheet=None,
                 sheet_name="Продажа",
-                cell_map=custom_cell_map,
+                rate_currency=out_cur,
                 request_id=req_id,
             )
             sheet_type = f"Покупка + Продажа ({in_cur_table}→{out_cur_table})"

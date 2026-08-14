@@ -24,6 +24,7 @@ class SheetsTradeGateway(Protocol):
         spreadsheet: str | None = None,
         sheet_name: str = "Продажа",
         cell_map: dict[str, str] | None = None,
+        rate_currency: str | None = None,
         request_id: int | str | None = None,
     ) -> tuple[int, Decimal | None]:
         ...

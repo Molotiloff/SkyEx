@@ -131,7 +131,7 @@ def _read_main_rate_fresh(code: str, cell_map: dict[str, str] | None = None) -> 
     if not code:
         return None
     cell_map = cell_map or _DEFAULT_CELL_MAP
-    ref = cell_map.get(code.upper())
+    ref = cell_map.get(code.strip().upper())
     if not ref:
         return None
     service = _get_service()
@@ -167,9 +167,10 @@ def append_sale_row(
         spreadsheet: str | None = None,
         sheet_name: str = "Продажа",
         cell_map=None,
+        rate_currency: str | None = None,
         request_id: int | str | None = None,
 ) -> tuple[int, Decimal | None]:
-    """Записывает строку на лист 'Продажа'. Столбец D — свежий курс из «Главная», столбец B — номер заявки."""
+    """Записывает продажу, разделяя отображаемую валюту и код поиска курса."""
     if cell_map is None:
         cell_map = _DEFAULT_CELL_MAP
 
@@ -181,15 +182,14 @@ def append_sale_row(
         out_cur = (out_currency or "").strip().upper()
         if not out_cur:
             raise SheetsWriteError("Нет валюты (out_currency).")
+        rate_cur = (rate_currency or out_cur).strip().upper()
 
         val_amount = _coerce_num(out_amount)
         val_rate = _coerce_num(rate)
 
-        # Всегда читаем актуальный курс для D
-        val_input = None
-        fresh = _read_main_rate_fresh(out_cur, cell_map)
-        if fresh is not None:
-            val_input = _coerce_num(fresh)
+        # Курс обязателен: без него строка продажи будет неполной.
+        fresh = read_main_rate(rate_cur, cell_map)
+        val_input = _coerce_num(fresh)
 
         data = []
         if created_at is not None:
@@ -197,8 +197,7 @@ def append_sale_row(
         if request_id is not None:
             data.append({"range": f"{sheet_name}!B{row}", "values": [[str(request_id)]]})
         data.append({"range": f"{sheet_name}!C{row}", "values": [[out_cur]]})
-        if val_input is not None:
-            data.append({"range": f"{sheet_name}!D{row}", "values": [[val_input]]})
+        data.append({"range": f"{sheet_name}!D{row}", "values": [[val_input]]})
         data.extend(
             [
                 {"range": f"{sheet_name}!E{row}", "values": [[val_amount]]},
@@ -211,7 +210,8 @@ def append_sale_row(
         ).execute()
         log.info(
             "Google Sheets write: op=append_sale spreadsheet_id=%s sheet=%s row=%s request_id=%s "
-            "in_currency=%s out_currency=%s in_amount=%s out_amount=%s rate=%s fresh_rate=%s "
+            "in_currency=%s out_currency=%s rate_currency=%s in_amount=%s out_amount=%s "
+            "rate=%s fresh_rate=%s "
             "updated_cells=%s",
             sid,
             sheet_name,
@@ -219,13 +219,14 @@ def append_sale_row(
             request_id,
             in_currency,
             out_cur,
+            rate_cur,
             in_amount,
             out_amount,
             rate,
             fresh,
             resp.get("totalUpdatedCells"),
         )
-        return row, None
+        return row, fresh
 
     except HttpError as e:
         log.exception(

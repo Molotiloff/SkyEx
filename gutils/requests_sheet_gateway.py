@@ -31,6 +31,7 @@ class GutilsSheetsTradeGateway:
         spreadsheet: str | None = None,
         sheet_name: str = "Продажа",
         cell_map: dict[str, str] | None = None,
+        rate_currency: str | None = None,
         request_id: int | str | None = None,
     ) -> tuple[int, Decimal | None]:
         return append_sale_row(
@@ -43,6 +44,7 @@ class GutilsSheetsTradeGateway:
             spreadsheet=spreadsheet,
             sheet_name=sheet_name,
             cell_map=cell_map,
+            rate_currency=rate_currency,
             request_id=request_id,
         )
 
