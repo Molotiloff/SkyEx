@@ -240,3 +240,8 @@ CREATE INDEX IF NOT EXISTS idx_live_messages_message_key ON live_messages(messag
 -- Генератор номеров заявок (table_req_id), монотонный, начинается со 100000 -----
 CREATE SEQUENCE IF NOT EXISTS request_id_seq START WITH 100000 INCREMENT BY 1;
 COMMENT ON SEQUENCE request_id_seq IS 'Последовательные номера заявок (монотонные)';
+
+
+-- Архив Telegram-сообщений ----------------------------------------------------
+-- psql \ir разрешает путь относительно этого schema.sql и не дублирует DDL.
+\ir migrations/2026-09-10_message_archive.sql

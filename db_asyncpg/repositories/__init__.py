@@ -4,6 +4,7 @@ from .clients import ClientsRepo
 from .exchange_requests import ExchangeRequestsRepo
 from .live_messages import LiveMessagesRepo
 from .managers import ManagersRepo
+from .message_archive import MessageArchiveRepo
 from .payment_watch import PaymentWatchRepo
 from .rate_orders import RateOrdersRepo
 from .request_schedule import RequestScheduleRepo
@@ -17,6 +18,7 @@ __all__ = [
     "ExchangeRequestsRepo",
     "LiveMessagesRepo",
     "ManagersRepo",
+    "MessageArchiveRepo",
     "PaymentWatchRepo",
     "RateOrdersRepo",
     "RequestScheduleRepo",

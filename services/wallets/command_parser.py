@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from decimal import Decimal
-import re
 
 from aiogram.types import Message
 
@@ -13,6 +13,9 @@ from utils.calc import CalcError, evaluate
 class WalletCommandParser:
     _LEADING_IGNORED_CHARS = " \t\r\n\u200b\u200c\u200d\ufeff\u200e\u200f\u2066\u2067\u2068\u2069"
     _CURRENCY_CHANGE_RE = re.compile(r"(?iu)^/[A-Za-zА-Яа-я0-9_.]+(?:@\w+)?\s+")
+    # Условные feature-handlers могут быть отключены конфигурацией. Такие команды
+    # не должны проваливаться в универсальный синтаксис `/ВАЛЮТА <выражение>`.
+    _RESERVED_NON_CURRENCY_COMMANDS = frozenset({"сообщение"})
     _CURRENCY_ALIASES = {
         "usd": "USD", "дол": "USD", "долл": "USD", "доллар": "USD", "доллары": "USD",
         "usdt": "USDT", "юсдт": "USDT",
@@ -48,7 +51,11 @@ class WalletCommandParser:
 
     @classmethod
     def looks_like_currency_change(cls, text: str | None) -> bool:
-        return bool(cls._CURRENCY_CHANGE_RE.match(cls.normalize_command_text(text)))
+        normalized = cls.normalize_command_text(text)
+        if not cls._CURRENCY_CHANGE_RE.match(normalized):
+            return False
+        command = normalized[1:].split(None, 1)[0].split("@", 1)[0].lower()
+        return command not in cls._RESERVED_NON_CURRENCY_COMMANDS
 
     @staticmethod
     def split_city_transfer_tail(tail: str) -> tuple[str, str]:

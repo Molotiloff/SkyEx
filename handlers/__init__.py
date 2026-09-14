@@ -11,6 +11,7 @@ from .clients import ClientsHandler
 from .debug import debug_router
 from .grinex_book import GrinexBookHandler
 from .managers import ManagersHandler
+from .message_archive import MessageArchiveHandler
 from .nonzero import NonZeroHandler
 from .office_cards import OfficeCard, OfficeCardsHandler
 from .payment_watch import PaymentWatchHandler
@@ -35,6 +36,7 @@ __all__ = [
     "ClientsHandler",
     "GrinexBookHandler",
     "ManagersHandler",
+    "MessageArchiveHandler",
     "NonZeroHandler",
     "OfficeCard",
     "OfficeCardsHandler",

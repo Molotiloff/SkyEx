@@ -6,6 +6,7 @@ from db_asyncpg.ports import (
     ExchangeRequestRepositoryPort,
     LiveMessageRepositoryPort,
     ManagerRepositoryPort,
+    MessageArchiveRepositoryPort,
     PaymentWatchRepositoryPort,
     RateOrderRepositoryPort,
     RequestScheduleRepositoryPort,
@@ -19,6 +20,7 @@ from db_asyncpg.repositories import (
     ExchangeRequestsRepo,
     LiveMessagesRepo,
     ManagersRepo,
+    MessageArchiveRepo,
     PaymentWatchRepo,
     RateOrdersRepo,
     RequestScheduleRepo,
@@ -38,6 +40,7 @@ class Repo(
     RateOrdersRepo,
     LiveMessagesRepo,
     PaymentWatchRepo,
+    MessageArchiveRepo,
     ActCounterRepositoryPort,
     ClientRepositoryPort,
     WalletRepositoryPort,
@@ -49,6 +52,7 @@ class Repo(
     LiveMessageRepositoryPort,
     ManagerRepositoryPort,
     PaymentWatchRepositoryPort,
+    MessageArchiveRepositoryPort,
 ):
     """
     Фасад над специализированными репозиториями.

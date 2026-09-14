@@ -26,6 +26,17 @@ def _parse_ids_set(s: str | None) -> set[int]:
     return {int(x.strip()) for x in s.split(",") if x.strip()}
 
 
+def _parse_bool(s: str | None, *, default: bool = False) -> bool:
+    if s is None or not s.strip():
+        return default
+    normalized = s.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"Некорректное boolean-значение: {s!r}")
+
+
 def _parse_city_chat_map(s: str | None, *, env_name: str) -> dict[str, int]:
     """
     Формат env:
@@ -90,6 +101,14 @@ class Config:
     city_cash_chat_ids: set[int]
     getblock: GetBlockSettings | None
 
+    message_archive_enabled: bool
+    message_archive_media_dir: str
+    message_archive_temp_dir: str
+    message_archive_download_workers: int
+    message_archive_download_queue_size: int
+    message_archive_export_workers: int
+    message_archive_export_part_bytes: int
+
     @classmethod
     def from_env(cls) -> "Config":
         try:
@@ -143,6 +162,29 @@ class Config:
 
         city_cash_chat_ids = _parse_ids_set(os.getenv("CITY_CASH_CHAT_IDS"))
 
+        message_archive_enabled = _parse_bool(os.getenv("MESSAGE_ARCHIVE_ENABLED"))
+        message_archive_media_dir = (
+            os.getenv("MESSAGE_ARCHIVE_MEDIA_DIR", "message_archive_data/media").strip()
+            or "message_archive_data/media"
+        )
+        message_archive_temp_dir = (
+            os.getenv("MESSAGE_ARCHIVE_TEMP_DIR", "message_archive_data/tmp").strip()
+            or "message_archive_data/tmp"
+        )
+        message_archive_download_workers = max(
+            1, int(os.getenv("MESSAGE_ARCHIVE_DOWNLOAD_WORKERS", "2"))
+        )
+        message_archive_download_queue_size = max(
+            1, int(os.getenv("MESSAGE_ARCHIVE_DOWNLOAD_QUEUE_SIZE", "500"))
+        )
+        message_archive_export_workers = max(
+            1, int(os.getenv("MESSAGE_ARCHIVE_EXPORT_WORKERS", "1"))
+        )
+        message_archive_export_part_bytes = max(
+            1024 * 1024,
+            int(os.getenv("MESSAGE_ARCHIVE_EXPORT_PART_BYTES", str(45 * 1024 * 1024))),
+        )
+
         getblock_identity = os.getenv("GETBLOCK_IDENTITY", "").strip()
         getblock_password = os.getenv("GETBLOCK_PASSWORD", "").strip()
 
@@ -182,4 +224,11 @@ class Config:
             default_city=default_city,
             city_cash_chat_ids=city_cash_chat_ids,
             getblock=getblock,
+            message_archive_enabled=message_archive_enabled,
+            message_archive_media_dir=message_archive_media_dir,
+            message_archive_temp_dir=message_archive_temp_dir,
+            message_archive_download_workers=message_archive_download_workers,
+            message_archive_download_queue_size=message_archive_download_queue_size,
+            message_archive_export_workers=message_archive_export_workers,
+            message_archive_export_part_bytes=message_archive_export_part_bytes,
         )

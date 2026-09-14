@@ -20,6 +20,7 @@ from db_asyncpg.ports import (
     ManagedClientWalletScheduleRepositoryPort,
     ManagedClientWalletTransactionRepositoryPort,
     ManagerRepositoryPort,
+    MessageArchiveRepositoryPort,
     PaymentWatchRepositoryPort,
     RateOrderRepositoryPort,
     SettingsRepositoryPort,
@@ -39,6 +40,7 @@ from handlers import (
     ClientsHandler,
     GrinexBookHandler,
     ManagersHandler,
+    MessageArchiveHandler,
     NonZeroHandler,
     OfficeCardsHandler,
     PaymentWatchHandler,
@@ -50,6 +52,10 @@ from handlers import (
     debug_router,
     get_table_delete_router,
     get_table_done_router,
+)
+from middlewares.message_archive import (
+    IncomingMessageArchiveMiddleware,
+    OutgoingMessageArchiveMiddleware,
 )
 from services.act_counter import ActCounterService
 from services.admin_client import (
@@ -68,6 +74,14 @@ from services.client_balances import (
     DailyBalancesReportService,
 )
 from services.daily_balances_scheduler import setup_daily_balances_scheduler
+from services.message_archive import (
+    ArchiveRuntimeMetrics,
+    LocalMediaStorage,
+    MediaDownloadService,
+    MessageArchiveMonitor,
+    MessageArchiveService,
+    MessageExportService,
+)
 from services.payment_watch import (
     PaymentWatchPoller,
     PaymentWatchService,
@@ -93,6 +107,10 @@ class AppServices:
     aml_service: AMLService | None = None
     aml_queue_service: AMLQueueService | None = None
     payment_watch_poller: PaymentWatchPoller | None = None
+    message_archive_service: MessageArchiveService | None = None
+    message_media_service: MediaDownloadService | None = None
+    message_archive_monitor: MessageArchiveMonitor | None = None
+    message_archive_handler: MessageArchiveHandler | None = None
 
 
 def setup_handlers(
@@ -122,6 +140,7 @@ def setup_handlers(
     act_counter_repo = cast(ActCounterLedgerRepositoryPort, repo)
     payment_watch_repo = cast(PaymentWatchRepositoryPort, repo)
     client_transfer_repo = cast(ClientTransferRepositoryPort, repo)
+    message_archive_repo = cast(MessageArchiveRepositoryPort, repo)
 
     request_chat_id = config.request_chat_id
     city_cash_chats = config.cash_chat_map
@@ -131,6 +150,52 @@ def setup_handlers(
     ignore_chat_ids = set(ignore_chat_ids or [])
 
     services = AppServices()
+
+    if config.message_archive_enabled:
+        archive_runtime_metrics = ArchiveRuntimeMetrics()
+        archive_storage = LocalMediaStorage(config.message_archive_media_dir)
+        services.message_media_service = MediaDownloadService(
+            bot=bot,
+            repo=message_archive_repo,
+            storage=archive_storage,
+            workers=config.message_archive_download_workers,
+            queue_size=config.message_archive_download_queue_size,
+        )
+        services.message_archive_service = MessageArchiveService(
+            repo=message_archive_repo,
+            attachment_scheduler=services.message_media_service,
+            metrics=archive_runtime_metrics,
+        )
+        services.message_archive_monitor = MessageArchiveMonitor(
+            repo=message_archive_repo,
+            runtime=archive_runtime_metrics,
+            media_queue=services.message_media_service,
+        )
+        incoming_archive = IncomingMessageArchiveMiddleware(services.message_archive_service)
+        dp.message.outer_middleware(incoming_archive)
+        dp.edited_message.outer_middleware(incoming_archive)
+        dp.channel_post.outer_middleware(incoming_archive)
+        dp.edited_channel_post.outer_middleware(incoming_archive)
+        dp.business_message.outer_middleware(incoming_archive)
+        dp.edited_business_message.outer_middleware(incoming_archive)
+        bot.session.middleware(
+            OutgoingMessageArchiveMiddleware(services.message_archive_service)
+        )
+        services.message_archive_handler = MessageArchiveHandler(
+            bot=bot,
+            repo=message_archive_repo,
+            manager_repo=manager_repo,
+            export_service=MessageExportService(
+                repo=message_archive_repo,
+                storage=archive_storage,
+                temp_dir=config.message_archive_temp_dir,
+                part_size=config.message_archive_export_part_bytes,
+            ),
+            admin_chat_id=config.admin_chat_id,
+            admin_user_ids=set(config.admin_ids),
+            export_workers=config.message_archive_export_workers,
+        )
+        dp.include_router(services.message_archive_handler.router)
     act_counter_service = ActCounterService(act_counter_repo)
     payment_watch_wallet_service = WalletService(repo=client_transfer_repo)
     payment_watch_service = PaymentWatchService(

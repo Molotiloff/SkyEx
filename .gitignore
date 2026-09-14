@@ -25,3 +25,15 @@ exchange-bot-*.json
 *credentials*.json
 *service-account*.json
 google-service-account*.json
+
+# Local Telegram archive runtime data
+message_archive_data/
+
+# Local documentation and working notes
+*.md
+docs/
+
+# Local database/data exports and generated reports
+dumps/
+exports/
+reports/

@@ -3,8 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import F, Router
-from aiogram.filters import BaseFilter
-from aiogram.filters import Command
+from aiogram.filters import BaseFilter, Command
 from aiogram.types import CallbackQuery, Message
 
 from db_asyncpg.repo import Repo

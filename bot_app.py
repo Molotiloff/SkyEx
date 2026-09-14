@@ -54,6 +54,14 @@ class BotApp:
             await self.services.payment_watch_poller.start()
             logging.info("Payment watch poller started")
 
+        if self.services.message_media_service:
+            await self.services.message_media_service.start()
+            logging.info("Message archive media workers started")
+
+        if self.services.message_archive_monitor:
+            await self.services.message_archive_monitor.start()
+            logging.info("Message archive monitor started")
+
         if self.services.orderbook_service:
             await self.services.orderbook_service.restore_live_message(
                 admin_chat_id=self.config.admin_chat_id,
@@ -78,6 +86,18 @@ class BotApp:
             await self.services.payment_watch_poller.stop()
             logging.info("Payment watch poller stopped")
 
+        if self.services.message_archive_handler:
+            await self.services.message_archive_handler.stop()
+            logging.info("Message archive exports stopped")
+
+        if self.services.message_archive_monitor:
+            await self.services.message_archive_monitor.stop()
+            logging.info("Message archive monitor stopped")
+
+        if self.services.message_media_service:
+            await self.services.message_media_service.stop()
+            logging.info("Message archive media workers stopped")
+
         if self.services.market_ws_service:
             await self.services.market_ws_service.stop()
             logging.info("Rapira websocket service stopped")
@@ -97,7 +117,20 @@ class BotApp:
             self.services.market_ws_service is not None,
         )
         try:
-            await self.dp.start_polling(self.bot)
+            allowed_updates = self.dp.resolve_used_update_types()
+            if self.config.message_archive_enabled:
+                allowed_updates = sorted(
+                    set(allowed_updates)
+                    | {
+                        "message",
+                        "edited_message",
+                        "channel_post",
+                        "edited_channel_post",
+                        "business_message",
+                        "edited_business_message",
+                    }
+                )
+            await self.dp.start_polling(self.bot, allowed_updates=allowed_updates)
         finally:
             await close_pool()
 
