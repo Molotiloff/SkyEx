@@ -31,7 +31,7 @@ class ClientsRepo:
                 SELECT id, chat_id, name, client_group
                 FROM clients
                 WHERE is_active = TRUE
-                  AND name = $1
+                  AND LOWER(TRIM(name)) = LOWER(TRIM($1))
                 ORDER BY created_at DESC, id DESC
                 LIMIT 1
                 """,

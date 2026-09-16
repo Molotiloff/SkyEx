@@ -184,6 +184,7 @@ def setup_handlers(
         services.message_archive_handler = MessageArchiveHandler(
             bot=bot,
             repo=message_archive_repo,
+            client_repo=client_repo,
             manager_repo=manager_repo,
             export_service=MessageExportService(
                 repo=message_archive_repo,

@@ -400,12 +400,20 @@ class MessageArchiveRepo:
             rows = await con.fetch(
                 """
                 SELECT DISTINCT c.*,
-                    CASE WHEN LOWER(c.current_title) = $1 THEN 0 ELSE 1 END AS rank
+                    CASE
+                        WHEN LOWER(TRIM(c.current_title)) = $1 THEN 0
+                        WHEN LOWER(TRIM(client.name)) = $1 THEN 1
+                        ELSE 2
+                    END AS rank
                 FROM message_archive_chats c
                 LEFT JOIN message_archive_chat_names n ON n.chat_id = c.id
+                LEFT JOIN clients client
+                    ON client.chat_id = c.telegram_chat_id
+                   AND client.is_active = TRUE
                 WHERE c.is_enabled
-                  AND (LOWER(c.current_title) LIKE '%' || $1 || '%'
-                       OR n.normalized_name LIKE '%' || $1 || '%')
+                  AND (LOWER(TRIM(c.current_title)) LIKE '%' || $1 || '%'
+                       OR n.normalized_name LIKE '%' || $1 || '%'
+                       OR LOWER(TRIM(client.name)) LIKE '%' || $1 || '%')
                 ORDER BY rank, c.current_title, c.id
                 LIMIT $2
                 """,

@@ -14,7 +14,11 @@ from aiogram.types import (
     Message,
 )
 
-from db_asyncpg.ports import ManagerRepositoryPort, MessageArchiveRepositoryPort
+from db_asyncpg.ports import (
+    ClientRepositoryPort,
+    ManagerRepositoryPort,
+    MessageArchiveRepositoryPort,
+)
 from services.message_archive.export_service import GeneratedExport, MessageExportService
 
 log = logging.getLogger("message_archive.handler")
@@ -28,6 +32,7 @@ class MessageArchiveHandler:
         *,
         bot: Bot,
         repo: MessageArchiveRepositoryPort,
+        client_repo: ClientRepositoryPort,
         manager_repo: ManagerRepositoryPort,
         export_service: MessageExportService,
         admin_chat_id: int,
@@ -36,6 +41,7 @@ class MessageArchiveHandler:
     ) -> None:
         self.bot = bot
         self.repo = repo
+        self.client_repo = client_repo
         self.manager_repo = manager_repo
         self.export_service = export_service
         self.admin_chat_id = int(admin_chat_id)
@@ -88,7 +94,16 @@ class MessageArchiveHandler:
             return
         matches = await self.repo.search_archive_chats(query, limit=20)
         if not matches:
-            await message.answer(f"Чат «{query}» в архиве не найден.")
+            client = await self.client_repo.find_client_by_name_exact(query)
+            if client:
+                await message.answer(
+                    f"Клиент «{client['name']}» найден, chat_id={client['chat_id']}, "
+                    "но сохранённых сообщений этого чата в архиве пока нет. "
+                    "Архив начнёт отображаться после получения ботом нового сообщения "
+                    "или после импорта старой истории."
+                )
+            else:
+                await message.answer(f"Чат «{query}» в архиве и списке клиентов не найден.")
             return
         if len(matches) == 1:
             started = self._start_export(
