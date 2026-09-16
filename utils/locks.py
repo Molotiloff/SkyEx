@@ -1,14 +1,18 @@
 # utils/locks.py
 import asyncio
-from collections import defaultdict
+from weakref import WeakValueDictionary
 
 
 class ChatLocks:
     def __init__(self) -> None:
-        self._locks = defaultdict(asyncio.Lock)
+        self._locks: WeakValueDictionary[int, asyncio.Lock] = WeakValueDictionary()
 
     def for_chat(self, chat_id: int) -> asyncio.Lock:
-        return self._locks[chat_id]
+        lock = self._locks.get(chat_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._locks[chat_id] = lock
+        return lock
 
 
 chat_locks = ChatLocks()

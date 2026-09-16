@@ -1,4 +1,4 @@
-from .aml_queue_service import AMLQueueService, AMLQueueTask
+from .aml_queue_service import AMLQueueFullError, AMLQueueService, AMLQueueTask
 from .aml_service import AMLService
 from .getblock_client import GetBlockAMLClient
 from .getblock_parser import (
@@ -12,6 +12,7 @@ from .getblock_parser import (
 from .getblock_settings import GetBlockSettings
 
 __all__ = [
+    "AMLQueueFullError",
     "AMLQueueService",
     "AMLQueueTask",
     "AMLService",

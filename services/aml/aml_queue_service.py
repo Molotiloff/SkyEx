@@ -11,6 +11,10 @@ from services.aml.aml_service import AMLService
 log = logging.getLogger("aml_queue")
 
 
+class AMLQueueFullError(RuntimeError):
+    pass
+
+
 @dataclass(slots=True)
 class AMLQueueTask:
     wallet: str
@@ -19,9 +23,11 @@ class AMLQueueTask:
 
 
 class AMLQueueService:
-    def __init__(self, *, aml_service: AMLService) -> None:
+    def __init__(self, *, aml_service: AMLService, max_queue_size: int = 20) -> None:
         self.aml_service = aml_service
-        self._queue: asyncio.Queue[AMLQueueTask] = asyncio.Queue()
+        self._queue: asyncio.Queue[AMLQueueTask] = asyncio.Queue(
+            maxsize=max(1, max_queue_size)
+        )
         self._worker_task: asyncio.Task | None = None
         self._stopped = False
 
@@ -41,7 +47,10 @@ class AMLQueueService:
         log.info("AML queue worker stopped")
 
     async def enqueue(self, task: AMLQueueTask) -> int:
-        await self._queue.put(task)
+        try:
+            self._queue.put_nowait(task)
+        except asyncio.QueueFull as exc:
+            raise AMLQueueFullError("Очередь AML-проверок заполнена") from exc
         return self._queue.qsize()
 
     def qsize(self) -> int:

@@ -32,6 +32,15 @@ class GetBlockAMLClient:
             "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
         })
 
+    def __enter__(self) -> GetBlockAMLClient:
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self.session.close()
+
     def _url(self, path: str) -> str:
         if path.startswith(("http://", "https://")):
             return path
@@ -296,7 +305,7 @@ class GetBlockAMLClient:
                     },
                 )
 
-                resp = self._get(
+                with self._get(
                     download_url,
                     allow_redirects=True,
                     stream=True,
@@ -305,12 +314,11 @@ class GetBlockAMLClient:
                         "referer": self._url(preview_url),
                         "upgrade-insecure-requests": "1",
                     },
-                )
-
-                with open(output_path, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=65536):
-                        if chunk:
-                            f.write(chunk)
+                ) as resp:
+                    with open(output_path, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=65536):
+                            if chunk:
+                                f.write(chunk)
 
                 return output_path
 

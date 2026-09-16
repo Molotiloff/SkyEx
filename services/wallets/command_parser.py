@@ -13,6 +13,7 @@ from utils.calc import CalcError, evaluate
 class WalletCommandParser:
     _LEADING_IGNORED_CHARS = " \t\r\n\u200b\u200c\u200d\ufeff\u200e\u200f\u2066\u2067\u2068\u2069"
     _CURRENCY_CHANGE_RE = re.compile(r"(?iu)^/[A-Za-zА-Яа-я0-9_.]+(?:@\w+)?\s+")
+    _EXPRESSION_START_CHARS = frozenset("0123456789.,+-(")
     # Условные feature-handlers могут быть отключены конфигурацией. Такие команды
     # не должны проваливаться в универсальный синтаксис `/ВАЛЮТА <выражение>`.
     _RESERVED_NON_CURRENCY_COMMANDS = frozenset({"сообщение"})
@@ -52,10 +53,14 @@ class WalletCommandParser:
     @classmethod
     def looks_like_currency_change(cls, text: str | None) -> bool:
         normalized = cls.normalize_command_text(text)
-        if not cls._CURRENCY_CHANGE_RE.match(normalized):
+        match = cls._CURRENCY_CHANGE_RE.match(normalized)
+        if not match:
             return False
         command = normalized[1:].split(None, 1)[0].split("@", 1)[0].lower()
-        return command not in cls._RESERVED_NON_CURRENCY_COMMANDS
+        if command in cls._RESERVED_NON_CURRENCY_COMMANDS:
+            return False
+        expression = normalized[match.end() :].lstrip()
+        return bool(expression and expression[0] in cls._EXPRESSION_START_CHARS)
 
     @staticmethod
     def split_city_transfer_tail(tail: str) -> tuple[str, str]:
